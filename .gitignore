@@ -1,3 +1,68 @@
-/.cache
+.cache
+Design-Docs/
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Python virtual envs / caches / bytecode
 /.venv
-/Design-Docs
+venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyc
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+
+# Logs / temp
+*.log
+logs/
+tmp/
+*.tmp
+
+# Secrets / env files
+.env
+.env.local
+*.key
+*.pem
+secrets.json
+
+# Large data / media / uploads (don't commit large binary assets)
+data/
+datasets/
+uploads/
+media/
+assets/
+*.zip
+*.tar
+*.tar.gz
+*.csv
+*.sqlite
+*.db
+*.mp3
+*.mp4
+*.wav
+
+# Node (if present)
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Compiled / native artifacts
+*.o
+*.so
+*.dll
+*.exe
+
+# Git LFS hint: track large binaries instead of committing them
+# (use `git lfs track "<pattern>"` and commit .gitattributes)
