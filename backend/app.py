@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import logging
+import os
 from config import Config
 from services.gemini_service import GeminiService
 from services.spotify_service import SpotifyService
@@ -178,7 +179,7 @@ def root():
 
 if __name__ == '__main__':
     logger.info("Starting Text-to-Spotify API server...")
-    app.run(debug=Config.DEBUG, host='0.0.0.0', port=5000)
+    app.run(debug=Config.DEBUG, host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
 
 
 
