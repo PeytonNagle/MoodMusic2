@@ -55,11 +55,14 @@ class GeminiService:
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.7,
-                max_tokens=2000,
+                max_tokens=800,
             )
 
             # Extract and parse the JSON response
-            content = response.choices[0].message.content.strip()
+            content = response.choices[0].message.content
+            if content is None:
+                raise ValueError("There was an error processing the Gemini request, try a different request.")
+            content = content.strip()
 
             # Try to extract JSON from the response
             if content.startswith('```json'):
