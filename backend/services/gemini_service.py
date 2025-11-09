@@ -33,7 +33,7 @@ class GeminiService:
             Based on this description: "{text_description}"
 
             Suggest {num_songs} songs that match this description.
-            Return ONLY a valid JSON array of objects with "title" and "artist" fields.
+            Return ONLY a valid JSON array of objects with "title" and "artist" fields, that mathed the example format.
             Make sure the songs are real, popular tracks that would be available on Spotify.
 
             Example format:
@@ -69,7 +69,8 @@ class GeminiService:
                 content = content[7:-3]  # Remove ```json and ```
             elif content.startswith('```'):
                 content = content[3:-3]  # Remove ``` and ```
-
+            # DEBUG
+            print(f"\nJson Response:\n{content}\n")
             songs = json.loads(content)
 
             # Validate the structure
