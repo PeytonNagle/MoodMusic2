@@ -1,5 +1,5 @@
 import openai
-from typing import List, Dict
+from typing import List, Dict, Any
 import json
 import logging
 
@@ -17,32 +17,46 @@ class GeminiService:
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
         )
 
-    def get_song_suggestions(self, text_description: str, num_songs: int = 10) -> List[Dict[str, str]]:
+    def get_song_suggestions(self, text_description: str, num_songs: int = 10) -> Dict[str, Any]:
         """
-        Get song suggestions based on text description using Gemini.
+        Get song suggestions based on text description using Gemini, with mood-first
+        interpretation and optional analysis metadata.
 
         Args:
             text_description: User's description of desired music
             num_songs: Number of songs to return (default: 10)
 
         Returns:
-            List of dictionaries with 'title' and 'artist' keys
+            Dict with:
+              - 'songs': List of dictionaries with at least 'title' and 'artist'
+              - 'analysis': Optional dict with keys like 'mood' and 'matched_criteria'
         """
         try:
             prompt = f"""
             Based on this description: "{text_description}"
 
-            Suggest {num_songs} songs that match this description.
-            Return ONLY a valid JSON array of objects with "title" and "artist" fields, that mathed the example format.
-            Make sure the songs are real, popular tracks that would be available on Spotify.
+            Your job:
+            1) Infer the primary mood (e.g., "upbeat", "melancholic night drive", "calm focus").
+            2) Detect any explicit genres or artists mentioned.
+            3) Suggest {num_songs} real, popular songs available on Spotify that match the mood first. If genres or artists are mentioned, include them among your picks while still reflecting the mood.
 
-            Example format:
-            [
-                {{"title": "Song Title", "artist": "Artist Name"}},
+            Return ONLY a valid JSON object with the following shape:
+            {{
+              "songs": [
+                {{"title": "Song Title", "artist": "Artist Name", "why": "super short reason", "matched_criteria": ["genre: indie rock", "artist: Drake"]}},
                 {{"title": "Another Song", "artist": "Another Artist"}}
-            ]
+              ],
+              "analysis": {{
+                "mood": "inferred mood",
+                "matched_criteria": ["genre: ...", "artist: ..."]
+              }}
+            }}
 
-            Focus on songs that match the mood, genre, or activity described.
+            Rules:
+            - Always prioritize mood when selecting songs.
+            - Respect explicit genres or artists by including matching picks where possible.
+            - Make sure the songs are real and likely available on Spotify.
+            - Always return valid JSON with double quotes and no extra text.
             """
 
             response = self.client.chat.completions.create(
@@ -50,12 +64,12 @@ class GeminiService:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a music expert who suggests songs based on descriptions. Always return valid JSON.",
+                        "content": "You are a music expert. Interpret user text as mood-first, then respect any explicit genres or artists. Always return valid JSON.",
                     },
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.7,
-                max_tokens=800,
+                max_tokens=4000,
             )
 
             # Extract and parse the JSON response
@@ -71,18 +85,34 @@ class GeminiService:
                 content = content[3:-3]  # Remove ``` and ```
             # DEBUG
             print(f"\nJson Response:\n{content}\n")
-            songs = json.loads(content)
+            parsed = json.loads(content)
 
-            # Validate the structure
-            if not isinstance(songs, list):
-                raise ValueError("Response is not a list")
+            songs: List[Dict[str, Any]] = []
+            analysis: Dict[str, Any] = {}
 
+            # Accept either an object with songs/analysis, or a bare list for backward compatibility
+            if isinstance(parsed, dict) and 'songs' in parsed:
+                songs = parsed.get('songs', [])
+                if not isinstance(songs, list):
+                    raise ValueError("'songs' must be a list")
+                analysis_obj = parsed.get('analysis')
+                if isinstance(analysis_obj, dict):
+                    analysis = analysis_obj
+            elif isinstance(parsed, list):
+                songs = parsed
+            else:
+                raise ValueError("Response must be an object with 'songs' or a list")
+
+            # Validate songs
             for song in songs:
                 if not isinstance(song, dict) or 'title' not in song or 'artist' not in song:
                     raise ValueError("Invalid song structure")
 
             logger.info(f"Successfully got {len(songs)} song suggestions from Gemini")
-            return songs
+            return {
+                'songs': songs,
+                'analysis': analysis
+            }
 
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON from Gemini response: {e}")
@@ -103,4 +133,3 @@ class GeminiService:
         except Exception as e:
             logger.error(f"Gemini connection test failed: {e}")
             return False
-

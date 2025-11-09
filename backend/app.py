@@ -107,18 +107,20 @@ def search_music():
         
         # Step 1: Get song suggestions from Gemini
         logger.info("Getting song suggestions from Gemini...")
-        song_suggestions = gemini_service.get_song_suggestions(query, limit)
-        
-        if not song_suggestions:
+        suggestions_result = gemini_service.get_song_suggestions(query, limit)
+        songs_from_ai = suggestions_result.get('songs', []) if isinstance(suggestions_result, dict) else suggestions_result
+        analysis = suggestions_result.get('analysis', {}) if isinstance(suggestions_result, dict) else {}
+
+        if not songs_from_ai:
             return jsonify({
                 'success': False,
                 'songs': [],
                 'error': 'No songs found for the given query'
             }), 404
-        
+
         # Step 2: Enrich songs with Spotify data
         logger.info("Enriching songs with Spotify data...")
-        enriched_songs = spotify_service.enrich_songs(song_suggestions)
+        enriched_songs = spotify_service.enrich_songs(songs_from_ai)
         
         # Filter out songs without preview URLs (optional)
         songs_with_previews = [song for song in enriched_songs if song.get('preview_url')]
@@ -128,6 +130,7 @@ def search_music():
         return jsonify({
             'success': True,
             'songs': enriched_songs,  # Return all songs, not just those with previews
+            'analysis': analysis,
             'error': None
         })
         

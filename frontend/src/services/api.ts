@@ -17,6 +17,10 @@ export interface SearchResponse {
   success: boolean;
   songs: Track[];
   error: string | null;
+  analysis?: {
+    mood?: string | null;
+    matched_criteria?: string[] | null;
+  };
 }
 
 export interface SearchRequest {

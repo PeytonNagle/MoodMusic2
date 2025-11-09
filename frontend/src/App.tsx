@@ -55,10 +55,10 @@ export default function App() {
         <div className="max-w-7xl mx-auto mb-12">
           <div className="text-center mb-8">
             <h1 className="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent mb-2">
-              Text to Spotify
+              Mood to Music
             </h1>
             <p className="text-gray-400">
-              Discover music through natural language descriptions
+              Describe your mood; mention genres or artists if you want
             </p>
           </div>
         </div>
@@ -72,7 +72,7 @@ export default function App() {
         />
 
         {/* Results */}
-        <ResultsGrid songs={results} searchQuery={lastSearch} />
+        <ResultsGrid songs={results} searchQuery={lastSearch} analysis={(rawResponse as any)?.analysis} />
 
         {/* Error state */}
         {error && (

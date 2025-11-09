@@ -29,7 +29,7 @@ export function SearchInput({ value, onChange, onSearch, isLoading }: SearchInpu
               value={value}
               onChange={(e) => onChange(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Describe the music you're looking for... (e.g., 'upbeat indie rock for a road trip' or 'chill lo-fi beats for studying')"
+              placeholder="Describe your mood first, then optionally genres or artists (e.g., 'feeling nostalgic — 90s alt rock like Oasis', 'calm focus — lo‑fi beats', 'energetic gym — hip hop, Drake')"
               className="min-h-[100px] bg-transparent border-none resize-none text-white placeholder:text-gray-500 focus-visible:ring-0 focus-visible:ring-offset-0 p-0"
             />
           </div>
@@ -37,7 +37,7 @@ export function SearchInput({ value, onChange, onSearch, isLoading }: SearchInpu
         <div className="flex justify-between items-center mt-4 pt-4 border-t border-white/10">
           <div className="flex items-center gap-2 text-gray-400">
             <Search className="w-4 h-4" />
-            <span className="text-sm">AI-powered music discovery</span>
+            <span className="text-sm">Mood-first music discovery (genres/artists respected)</span>
           </div>
           <Button
             onClick={onSearch}
@@ -49,7 +49,7 @@ export function SearchInput({ value, onChange, onSearch, isLoading }: SearchInpu
                 <span className="animate-pulse">Searching...</span>
               </>
             ) : (
-              "Find Music"
+              "Find Mood Songs"
             )}
           </Button>
         </div>
