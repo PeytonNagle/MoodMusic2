@@ -48,6 +48,14 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+
+  preview: {
+  allowedHosts: [
+    'frontend-production-20ff.up.railway.app',
+    'moodmusic.com', // for later
+  ],
+    
+},
   build: {
     target: 'esnext',
     outDir: 'build',
