@@ -1,5 +1,5 @@
 // API service for communicating with Flask backend
-const API_BASE_URL = 'https://frontend-production-20ff.up.railway.app/';
+const API_BASE_URL = 'https://backend-production-6b98.up.railway.app/';
 
 export interface Track {
   id: string | null;
