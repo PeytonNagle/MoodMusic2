@@ -1,5 +1,5 @@
 import openai
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import json
 import logging
 
@@ -17,7 +17,7 @@ class GeminiService:
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
         )
 
-    def get_song_suggestions(self, text_description: str, num_songs: int = 10) -> Dict[str, Any]:
+    def get_song_suggestions(self, text_description: str, num_songs: int = 10, model: Optional[str] = None) -> Dict[str, Any]:
         """
         Get song suggestions based on text description using Gemini, with mood-first
         interpretation and optional analysis metadata.
@@ -60,7 +60,7 @@ class GeminiService:
             """
 
             response = self.client.chat.completions.create(
-                model="gemini-2.5-flash",
+                model=(model or "gemini-2.5-flash"),
                 messages=[
                     {
                         "role": "system",
