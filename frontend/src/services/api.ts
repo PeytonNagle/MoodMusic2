@@ -27,6 +27,7 @@ export interface SearchResponse {
 export interface SearchRequest {
   query: string;
   limit?: number;
+  emojis?: string[];
 }
 
 export class ApiService {
