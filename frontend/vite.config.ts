@@ -53,6 +53,7 @@ export default defineConfig({
   allowedHosts: [
     'frontend-production-20ff.up.railway.app',
     'moodmusic.com', // for later
+    'frontend-integration-testing.up.railway.app'
   ],
     
 },
