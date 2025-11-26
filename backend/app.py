@@ -29,7 +29,8 @@ def search_music():
     
     Expected JSON payload:
     {
-        "query": "upbeat indie rock for a road trip",
+        "query": "upbeat indie rock for a road trip",  # optional if emojis are provided
+        "emojis": ["🙂", "🔥"],  # optional, up to 12
         "limit": 10  # optional, defaults to 10
     }
     
@@ -63,21 +64,47 @@ def search_music():
         
         data = request.get_json()
         
-        if not data or 'query' not in data:
+        if not data:
             return jsonify({
                 'success': False,
                 'songs': [],
-                'error': 'Missing required field: query'
+                'error': 'Request body is missing'
             }), 400
-        
-        query = data['query'].strip()
+
+        query = str(data.get('query', '') or '').strip()
         limit = data.get('limit', 10)
-        
-        if not query:
+        emojis_raw = data.get('emojis', [])
+
+        # Validate emojis: must be a list of strings, trimmed, deduped, and capped
+        emojis = []
+        if emojis_raw is not None:
+            if not isinstance(emojis_raw, list):
+                return jsonify({
+                    'success': False,
+                    'songs': [],
+                    'error': 'emojis must be an array of strings'
+                }), 400
+
+            seen = set()
+            for emoji in emojis_raw:
+                if not isinstance(emoji, str):
+                    return jsonify({
+                        'success': False,
+                        'songs': [],
+                        'error': 'emojis must be strings'
+                    }), 400
+                trimmed = emoji.strip()
+                if trimmed and trimmed not in seen:
+                    emojis.append(trimmed)
+                    seen.add(trimmed)
+                if len(emojis) >= 12:
+                    break
+
+        if not query and not emojis:
             return jsonify({
                 'success': False,
                 'songs': [],
-                'error': 'Query cannot be empty'
+                'error': 'Please provide a search query or select emojis'
             }), 400
         
         # Validate limit
@@ -87,8 +114,7 @@ def search_music():
                 limit = 10
         except (ValueError, TypeError):
             limit = 10
-        
-        logger.info(f"Processing search query: '{query}' with limit: {limit}")
+        logger.info(f"Processing search query: '{query}' with limit: {limit} and emojis: {emojis}")
         
         # Check if services are available
         if not gemini_service:
@@ -107,7 +133,7 @@ def search_music():
         
         # Step 1: Get song suggestions from Gemini
         logger.info("Getting song suggestions from Gemini...")
-        suggestions_result = gemini_service.get_song_suggestions(query, limit)
+        suggestions_result = gemini_service.get_song_suggestions(query, limit, emojis)
         songs_from_ai = suggestions_result.get('songs', []) if isinstance(suggestions_result, dict) else suggestions_result
         analysis = suggestions_result.get('analysis', {}) if isinstance(suggestions_result, dict) else {}
 
