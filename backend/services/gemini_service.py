@@ -17,7 +17,13 @@ class GeminiService:
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
         )
 
-    def get_song_suggestions(self, text_description: str, num_songs: int = 10, model: Optional[str] = None) -> Dict[str, Any]:
+    def get_song_suggestions(
+        self,
+        text_description: str,
+        num_songs: int = 10,
+        emojis: Optional[List[str]] = None,
+        model: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Get song suggestions based on text description using Gemini, with mood-first
         interpretation and optional analysis metadata.
@@ -25,6 +31,7 @@ class GeminiService:
         Args:
             text_description: User's description of desired music
             num_songs: Number of songs to return (default: 10)
+            emojis: Optional list of emoji tags provided by the user
 
         Returns:
             Dict with:
@@ -32,13 +39,24 @@ class GeminiService:
               - 'analysis': Optional dict with keys like 'mood' and 'matched_criteria'
         """
         try:
+            emoji_context = ""
+            if emojis:
+                emoji_context = (
+                    f'Emoji tags selected by the user: [{", ".join(emojis)}]. '
+                    "Interpret as mood/energy/activity cues and weigh alongside the text."
+                )
+            else:
+                emoji_context = "No emoji tags provided by the user."
+
             prompt = f"""
             Based on this description: "{text_description}"
+            {emoji_context}
 
             Your job:
             1) Infer the primary mood (e.g., "upbeat", "melancholic night drive", "calm focus").
             2) Detect any explicit genres or artists mentioned.
             3) Suggest {num_songs} real, popular songs available on Spotify that match the mood first. If genres or artists are mentioned, include them among your picks while still reflecting the mood.
+            4) Keep matched_criteria entries concise (short tags under ~30 characters, e.g., "genre: indie", "artist: Drake", "mood: euphoric").
 
             Return ONLY a valid JSON object with the following shape:
             {{
@@ -53,8 +71,9 @@ class GeminiService:
             }}
 
             Rules:
-            - Always prioritize mood when selecting songs.
+            - Always prioritize mood and emojis when selecting songs.
             - Respect explicit genres or artists by including matching picks where possible.
+            - Keep 'why' explanations short and keep matched_criteria as brief tags.
             - Make sure the songs are real and likely available on Spotify.
             - Always return valid JSON with double quotes and no extra text.
             """
@@ -68,7 +87,7 @@ class GeminiService:
                     },
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.7,
+                temperature=0.8,
                 max_tokens=4000,
             )
 
@@ -108,7 +127,7 @@ class GeminiService:
                 if not isinstance(song, dict) or 'title' not in song or 'artist' not in song:
                     raise ValueError("Invalid song structure")
 
-            logger.info(f"Successfully got {len(songs)} song suggestions from Gemini")
+            logger.info(f"Successfully got {len(songs)} song suggestions from Gemini (emojis: {emojis or []})")
             return {
                 'songs': songs,
                 'analysis': analysis

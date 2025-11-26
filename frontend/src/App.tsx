@@ -5,6 +5,7 @@ import { ApiService, Track } from "./services/api";
 
 export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedEmojis, setSelectedEmojis] = useState<string[]>([]);
   const [lastSearch, setLastSearch] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [results, setResults] = useState<Track[]>([]);
@@ -12,31 +13,34 @@ export default function App() {
   const [rawResponse, setRawResponse] = useState<any | null>(null);
 
   const handleSearch = async () => {
-    if (!searchQuery.trim()) return;
+    const hasQuery = searchQuery.trim().length > 0;
+    const hasEmojis = selectedEmojis.length > 0;
+    if (!hasQuery && !hasEmojis) return;
 
     setIsLoading(true);
     setError(null);
-    setLastSearch(searchQuery);
+    setLastSearch(hasQuery ? searchQuery : selectedEmojis.join(" "));
 
     try {
       const response = await ApiService.searchMusic({
         query: searchQuery,
-        limit: 10
+        limit: 10,
+        emojis: hasEmojis ? selectedEmojis : undefined,
       });
 
       if (response.success) {
         setResults(response.songs);
         setRawResponse(response);
       } else {
-        setError(response.error || 'Failed to search for music');
+        setError(response.error || "Failed to search for music");
         setResults([]);
         setRawResponse(response);
       }
     } catch (err) {
-      console.error('Search error:', err);
-      setError('Failed to connect to the server. Please make sure the backend is running.');
+      console.error("Search error:", err);
+      setError("Failed to connect to the server. Please make sure the backend is running.");
       setResults([]);
-      setRawResponse({ success: false, error: 'Network or server error' });
+      setRawResponse({ success: false, error: "Network or server error" });
     } finally {
       setIsLoading(false);
     }
@@ -57,9 +61,7 @@ export default function App() {
             <h1 className="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent mb-2">
               Mood to Music
             </h1>
-            <p className="text-gray-400">
-              Describe your mood; mention genres or artists if you want
-            </p>
+            <p className="text-gray-400">Describe your mood; mention genres or artists if you want</p>
           </div>
         </div>
 
@@ -69,6 +71,8 @@ export default function App() {
           onChange={setSearchQuery}
           onSearch={handleSearch}
           isLoading={isLoading}
+          selectedEmojis={selectedEmojis}
+          onChangeEmojis={setSelectedEmojis}
         />
 
         {/* Results */}
@@ -78,7 +82,7 @@ export default function App() {
         {error && (
           <div className="w-full max-w-4xl mx-auto mt-8">
             <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-6 text-center">
-              <div className="text-red-400 mb-2">⚠️ Error</div>
+              <div className="text-red-400 mb-2">Oops, error</div>
               <p className="text-red-300">{error}</p>
             </div>
           </div>
@@ -88,12 +92,7 @@ export default function App() {
         {!isLoading && results.length === 0 && !error && (
           <div className="text-center mt-20">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-white/5 border border-white/10 mb-4">
-              <svg
-                className="w-8 h-8 text-gray-500"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
+              <svg className="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -103,9 +102,7 @@ export default function App() {
               </svg>
             </div>
             <h3 className="text-gray-400 mb-2">Start discovering music</h3>
-            <p className="text-gray-600">
-              Describe the vibe, mood, or type of music you're looking for
-            </p>
+            <p className="text-gray-600">Describe the vibe, mood, or type of music you're looking for</p>
           </div>
         )}
 
