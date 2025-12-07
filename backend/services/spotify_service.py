@@ -1,7 +1,10 @@
+import logging
+import re
+from difflib import SequenceMatcher
+from typing import List, Dict, Optional
+
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
-from typing import List, Dict, Optional
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -18,44 +21,31 @@ class SpotifyService:
     
     def search_track(self, title: str, artist: str) -> Optional[Dict]:
         """
-        Search for a track on Spotify and return enriched data
-        
-        Args:
-            title: Song title
-            artist: Artist name
-            
-        Returns:
-            Dictionary with track data or None if not found
+        Search for a track on Spotify using multiple queries + fuzzy ranking.
+        Focus on the primary artist and tolerate feature/formatting noise.
         """
         try:
-            # Search query combining title and artist
-            query = f"track:{title} artist:{artist}"
-            
-            results = self.sp.search(q=query, type='track', limit=1)
-            
-            if not results['tracks']['items']:
-                logger.warning(f"No results found for: {title} by {artist}")
+            cleaned_title = self._clean_title(title)
+            primary_artist = self._primary_artist(artist)
+
+            queries = [
+                f'track:"{cleaned_title}" artist:"{primary_artist}"',
+                f'"{cleaned_title}" "{primary_artist}"',
+                f'"{cleaned_title}"',
+            ]
+
+            best_match = self._find_best_match(queries, cleaned_title, primary_artist)
+
+            if not best_match or best_match[0] < 60:
+                logger.warning(f"No strong match for: {title} by {artist} (best_score={best_match[0] if best_match else 'n/a'})")
                 return None
-            
-            track = results['tracks']['items'][0]
-            
-            # Extract relevant data
-            track_data = {
-                'id': track['id'],
-                'title': track['name'],
-                'artist': track['artists'][0]['name'],
-                'album': track['album']['name'],
-                'album_art': track['album']['images'][0]['url'] if track['album']['images'] else None,
-                'preview_url': track['preview_url'],
-                'spotify_url': track['external_urls']['spotify'],
-                'release_year': track['album']['release_date'][:4] if track['album']['release_date'] else None,
-                'duration_ms': track['duration_ms'],
-                'duration_formatted': self._format_duration(track['duration_ms'])
-            }
-            
-            logger.info(f"Found track: {title} by {artist}")
+
+            track = best_match[1]
+            track_data = self._build_track_payload(track)
+
+            logger.info(f"Found track: {title} by {artist} (score={best_match[0]:.1f})")
             return track_data
-            
+
         except Exception as e:
             logger.error(f"Error searching for track '{title}' by '{artist}': {e}")
             return None
@@ -109,6 +99,68 @@ class SpotifyService:
         
         logger.info(f"Enriched {len(enriched_songs)} songs with Spotify data")
         return enriched_songs
+
+    def _clean_title(self, text: str) -> str:
+        """Normalize song titles by removing feature/suffix noise for better matching."""
+        text = text or ""
+        lowered = text.lower()
+        lowered = re.sub(r"\s*[\(\[].*?[\)\]]", "", lowered)  # drop parenthetical info
+        lowered = re.sub(r"\s*-\s*(remaster(ed)?(?: \d{4})?|live.*|single mix|radio edit).*", "", lowered)
+        lowered = re.sub(r"\s*(feat\.?|ft\.?|featuring|with)\s+.*", "", lowered)
+        lowered = re.sub(r"\s+", " ", lowered)
+        return lowered.strip()
+
+    def _primary_artist(self, artist: str) -> str:
+        """Extract primary artist, ignoring featured collaborators."""
+        artist = artist or ""
+        parts = re.split(r"\s*(,|&|/| x | ft\.?| feat\.?| featuring )\s*", artist, maxsplit=1, flags=re.IGNORECASE)
+        return parts[0].strip()
+
+    def _find_best_match(self, queries: List[str], cleaned_title: str, primary_artist: str):
+        """Run multiple queries and return the best-scoring track candidate."""
+        best_match = None  # (score, track)
+        for query in queries:
+            results = self.sp.search(q=query, type="track", limit=5, market="US")
+            for track in results.get("tracks", {}).get("items", []):
+                score = self._score_candidate(cleaned_title, primary_artist, track)
+                if not best_match or score > best_match[0]:
+                    best_match = (score, track)
+            if best_match and best_match[0] >= 80:
+                break  # good enough, stop early
+        return best_match
+
+    def _score_candidate(self, cleaned_title: str, primary_artist: str, track: Dict) -> float:
+        """Score a Spotify track candidate based on title similarity and artist match."""
+        track_title = self._clean_title(track.get("name", ""))
+        track_artists = [a.get("name", "").lower() for a in track.get("artists", [])]
+
+        title_score = SequenceMatcher(None, cleaned_title, track_title).ratio() * 100
+
+        artist_score = 0
+        if track_artists:
+            if primary_artist.lower() == track_artists[0]:
+                artist_score += 50  # strongest: primary artist matches lead
+            if primary_artist.lower() in track_artists:
+                artist_score += 20  # primary artist appears anywhere
+
+        return title_score + artist_score
+
+    def _build_track_payload(self, track: Dict) -> Dict:
+        """Shape Spotify track data into our response schema."""
+        return {
+            'id': track.get('id'),
+            'title': track.get('name'),
+            'artist': track.get('artists', [{}])[0].get('name') if track.get('artists') else None,
+            'album': track.get('album', {}).get('name') if track.get('album') else None,
+            'album_art': (track.get('album', {}).get('images', [{}])[0].get('url')
+                          if track.get('album') and track.get('album', {}).get('images') else None),
+            'preview_url': track.get('preview_url'),
+            'spotify_url': track.get('external_urls', {}).get('spotify') if track.get('external_urls') else None,
+            'release_year': (track.get('album', {}).get('release_date', '')[:4]
+                             if track.get('album', {}).get('release_date') else None),
+            'duration_ms': track.get('duration_ms'),
+            'duration_formatted': self._format_duration(track.get('duration_ms'))
+        }
     
     def _format_duration(self, duration_ms: int) -> str:
         """Convert milliseconds to MM:SS format"""
