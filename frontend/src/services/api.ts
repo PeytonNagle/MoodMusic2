@@ -24,10 +24,44 @@ export interface SearchResponse {
   };
 }
 
+export interface AnalysisResponse {
+  success: boolean;
+  analysis: {
+    mood?: string | null;
+    matched_criteria?: string[] | null;
+  };
+  error?: string | null;
+}
+
+export interface RecommendResponse {
+  success: boolean;
+  songs: Track[];
+  analysis?: {
+    mood?: string | null;
+    matched_criteria?: string[] | null;
+  };
+  error?: string | null;
+}
+
 export interface SearchRequest {
   query: string;
   limit?: number;
   emojis?: string[];
+}
+
+export interface AnalyzeRequest {
+  query: string;
+  emojis?: string[];
+}
+
+export interface RecommendRequest {
+  query: string;
+  limit?: number;
+  emojis?: string[];
+  analysis?: {
+    mood?: string | null;
+    matched_criteria?: string[] | null;
+  };
 }
 
 export class ApiService {
@@ -53,6 +87,56 @@ export class ApiService {
       return data;
     } catch (error) {
       console.error('API search error:', error);
+      return {
+        success: false,
+        songs: [],
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
+      };
+    }
+  }
+
+  /**
+   * Run fast mood/constraint analysis
+   */
+  static async analyzeMood(request: AnalyzeRequest): Promise<AnalysisResponse> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/analyze`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(request),
+      });
+
+      const data: AnalysisResponse = await response.json();
+      return data;
+    } catch (error) {
+      console.error('API analyze error:', error);
+      return {
+        success: false,
+        analysis: {},
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
+      };
+    }
+  }
+
+  /**
+   * Get song recommendations using prior analysis
+   */
+  static async recommendMusic(request: RecommendRequest): Promise<RecommendResponse> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/recommend`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(request),
+      });
+
+      const data: RecommendResponse = await response.json();
+      return data;
+    } catch (error) {
+      console.error('API recommend error:', error);
       return {
         success: false,
         songs: [],
