@@ -8,6 +8,7 @@ interface SearchInputProps {
   onChange: (value: string) => void;
   onSearch: () => void;
   isLoading?: boolean;
+  loadingLabel?: string;
   selectedEmojis: string[];
   onChangeEmojis: (next: string[]) => void;
 }
@@ -17,6 +18,7 @@ export function SearchInput({
   onChange,
   onSearch,
   isLoading,
+  loadingLabel,
   selectedEmojis,
   onChangeEmojis,
 }: SearchInputProps) {
@@ -27,7 +29,7 @@ export function SearchInput({
     }
   };
 
-  const disableSearch = isLoading || !value.trim();
+  const disableSearch = isLoading || (!value.trim() && selectedEmojis.length === 0);
 
   return (
     <div className="w-full max-w-4xl mx-auto">
@@ -61,7 +63,7 @@ export function SearchInput({
           >
             {isLoading ? (
               <>
-                <span className="animate-pulse">Searching...</span>
+                <span className="animate-pulse">{loadingLabel || "Searching..."}</span>
               </>
             ) : (
               "Find Mood Songs"

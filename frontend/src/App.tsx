@@ -7,42 +7,69 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedEmojis, setSelectedEmojis] = useState<string[]>([]);
   const [lastSearch, setLastSearch] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isRecommending, setIsRecommending] = useState(false);
   const [results, setResults] = useState<Track[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [rawResponse, setRawResponse] = useState<any | null>(null);
+  const [analysis, setAnalysis] = useState<{ mood?: string | null; matched_criteria?: string[] | null } | null>(null);
+
+  const isLoading = isAnalyzing || isRecommending;
 
   const handleSearch = async () => {
     const hasQuery = searchQuery.trim().length > 0;
     const hasEmojis = selectedEmojis.length > 0;
     if (!hasQuery && !hasEmojis) return;
 
-    setIsLoading(true);
+    setIsAnalyzing(true);
+    setIsRecommending(false);
     setError(null);
+    setResults([]);
+    setAnalysis(null);
+    setRawResponse(null);
     setLastSearch(hasQuery ? searchQuery : selectedEmojis.join(" "));
 
     try {
-      const response = await ApiService.searchMusic({
+      const analysisResponse = await ApiService.analyzeMood({
         query: searchQuery,
-        limit: 10,
         emojis: hasEmojis ? selectedEmojis : undefined,
       });
 
-      if (response.success) {
-        setResults(response.songs);
-        setRawResponse(response);
-      } else {
-        setError(response.error || "Failed to search for music");
-        setResults([]);
-        setRawResponse(response);
+      setIsAnalyzing(false);
+      setRawResponse({ analysis: analysisResponse });
+
+      if (!analysisResponse.success) {
+        setError(analysisResponse.error || "Failed to analyze mood");
+        return;
       }
-    } catch (err) {
+
+      setAnalysis(analysisResponse.analysis || {});
+
+      setIsRecommending(true);
+      const recommendResponse = await ApiService.recommendMusic({
+        query: searchQuery,
+        limit: 10,
+        emojis: hasEmojis ? selectedEmojis : undefined,
+        analysis: analysisResponse.analysis,
+      });
+
+      setRawResponse({ analysis: analysisResponse, recommend: recommendResponse });
+
+      if (recommendResponse.success) {
+        setResults(recommendResponse.songs);
+        setAnalysis(recommendResponse.analysis || analysisResponse.analysis || {});
+      } else {
+        setError(recommendResponse.error || "Failed to get recommendations");
+        setResults([]);
+      }
+    } catch (err: any) {
       console.error("Search error:", err);
       setError("Failed to connect to the server. Please make sure the backend is running.");
       setResults([]);
       setRawResponse({ success: false, error: "Network or server error" });
     } finally {
-      setIsLoading(false);
+      setIsAnalyzing(false);
+      setIsRecommending(false);
     }
   };
 
@@ -71,12 +98,52 @@ export default function App() {
           onChange={setSearchQuery}
           onSearch={handleSearch}
           isLoading={isLoading}
+          loadingLabel={isAnalyzing ? "Analyzing..." : isRecommending ? "Finding songs..." : undefined}
           selectedEmojis={selectedEmojis}
           onChangeEmojis={setSelectedEmojis}
         />
 
+        {/* Analysis status */}
+        {(isAnalyzing || analysis) && (
+          <div className="w-full max-w-4xl mx-auto mt-6">
+            <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-start justify-between">
+              <div>
+                <div className="text-sm text-gray-400 mb-1">Mood analysis</div>
+                {analysis ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {analysis.mood && (
+                      <span className="text-xs px-2 py-1 rounded-full bg-purple-500/20 text-white border border-purple-500/30">
+                        Mood: {analysis.mood}
+                      </span>
+                    )}
+                    {analysis.matched_criteria?.map((c) => (
+                      <span key={c} className="text-xs px-2 py-1 rounded-full bg-white/5 text-white border border-white/10">
+                        {c}
+                      </span>
+                    ))}
+                    {!analysis.mood && !analysis.matched_criteria?.length && (
+                      <span className="text-xs text-gray-400">No analysis details returned</span>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-xs text-gray-400">Analyzing your request...</div>
+                )}
+              </div>
+              <div className="text-xs text-purple-300">
+                {isRecommending ? "Finding songs..." : isAnalyzing ? "Analyzing..." : "Analysis ready"}
+              </div>
+            </div>
+            {isRecommending && (
+              <div className="flex items-center gap-3 mt-3 text-base text-gray-400">
+                <span className="spinner w-6 h-6" aria-hidden="true" />
+                <span className="text-gray-100">Fetching recommendations...</span>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Results */}
-        <ResultsGrid songs={results} searchQuery={lastSearch} analysis={(rawResponse as any)?.analysis} />
+        <ResultsGrid songs={results} searchQuery={lastSearch} />
 
         {/* Error state */}
         {error && (
