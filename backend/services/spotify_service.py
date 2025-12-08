@@ -75,7 +75,11 @@ class SpotifyService:
                             continue
                     enriched_songs.append(track_data)
                 else:
-                    # If not found, create a basic entry
+                    # If not found, create a basic entry with popularity 0
+                    # Apply popularity filter: if min_popularity is set and 0 < min_popularity, skip this track
+                    if min_popularity is not None and 0 < min_popularity:
+                        logger.info(f"Skipping {song['title']} by {song['artist']} (not found in Spotify, popularity: 0 < {min_popularity})")
+                        continue
                     enriched_songs.append({
                         'id': None,
                         'title': song['title'],
@@ -91,7 +95,11 @@ class SpotifyService:
                     })
             except Exception as e:
                 logger.error(f"Error enriching song {song}: {e}")
-                # Add basic entry on error
+                # Add basic entry on error with popularity 0
+                # Apply popularity filter: if min_popularity is set and 0 < min_popularity, skip this track
+                if min_popularity is not None and 0 < min_popularity:
+                    logger.info(f"Skipping {song['title']} by {song['artist']} (error occurred, popularity: 0 < {min_popularity})")
+                    continue
                 enriched_songs.append({
                     'id': None,
                     'title': song['title'],
