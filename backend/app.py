@@ -151,25 +151,57 @@ def search_music():
         analysis = analysis_result.get('analysis', {}) if isinstance(analysis_result, dict) else {}
 
         # Step 2: Get song recommendations using the analysis
-        logger.info("Getting song recommendations from Gemini...")
-        recommendations = gemini_service.recommend_songs(query, analysis, limit, emojis)
-        songs_from_ai = recommendations.get('songs', []) if isinstance(recommendations, dict) else recommendations
-
-        if not songs_from_ai:
-            return jsonify({
-                'success': False,
-                'songs': [],
-                'error': 'No songs found for the given query'
-            }), 404
-
-        # Step 2: Enrich songs with Spotify data
-        logger.info("Enriching songs with Spotify data...")
-        enriched_songs = spotify_service.enrich_songs(songs_from_ai, min_popularity=min_popularity)
+        # Keep requesting until we have enough songs that meet popularity criteria
+        enriched_songs = []
+        all_requested_songs = []  # Track all songs we've requested to avoid duplicates
+        max_attempts = 5  # Maximum number of requests to avoid infinite loops
+        attempt = 0
         
+        while len(enriched_songs) < limit and attempt < max_attempts:
+            attempt += 1
+            # Request more songs than needed to account for filtering
+            remaining_needed = limit - len(enriched_songs)
+            request_limit = min(int(remaining_needed * 2) if remaining_needed < 25 else remaining_needed + 15, 50)
+            
+            logger.info(f"Attempt {attempt}: Requesting {request_limit} songs from Gemini (need {remaining_needed} more)...")
+            recommendations = gemini_service.recommend_songs(query, analysis, request_limit, emojis)
+            songs_from_ai = recommendations.get('songs', []) if isinstance(recommendations, dict) else recommendations
+
+            if not songs_from_ai:
+                if attempt == 1:
+                    return jsonify({
+                        'success': False,
+                        'songs': [],
+                        'error': 'No songs found for the given query'
+                    }), 404
+                break  # No more songs available
+
+            # Filter out songs we've already processed
+            new_songs = []
+            for song in songs_from_ai:
+                song_key = f"{song.get('title', '').lower()}|{song.get('artist', '').lower()}"
+                if song_key not in all_requested_songs:
+                    new_songs.append(song)
+                    all_requested_songs.append(song_key)
+            
+            if not new_songs:
+                logger.info("No new songs to process, stopping requests")
+                break
+
+            # Enrich songs with Spotify data
+            logger.info(f"Enriching {len(new_songs)} new songs with Spotify data...")
+            new_enriched = spotify_service.enrich_songs(new_songs, min_popularity=min_popularity)
+            enriched_songs.extend(new_enriched)
+            
+            logger.info(f"After attempt {attempt}: Found {len(enriched_songs)}/{limit} songs meeting criteria")
+
         # Limit to requested number of songs
         enriched_songs = enriched_songs[:limit]
         
-        logger.info(f"Found {len(enriched_songs)} songs meeting criteria")
+        if len(enriched_songs) < limit:
+            logger.warning(f"Could only find {len(enriched_songs)} songs meeting popularity criteria (requested {limit})")
+        
+        logger.info(f"Final result: {len(enriched_songs)} songs")
         
         return jsonify({
             'success': True,
@@ -297,18 +329,51 @@ def recommend():
             analysis_result = gemini_service.analyze_mood(query, emojis)
             analysis = analysis_result.get('analysis', {}) if isinstance(analysis_result, dict) else {}
 
-        logger.info("Getting song recommendations from Gemini (recommend endpoint)...")
-        recommendations = gemini_service.recommend_songs(query, analysis, limit, emojis)
-        songs_from_ai = recommendations.get('songs', []) if isinstance(recommendations, dict) else recommendations
-
-        if not songs_from_ai:
-            return jsonify({'success': False, 'songs': [], 'analysis': analysis, 'error': 'No songs found for the given query'}), 404
-
-        logger.info("Enriching songs with Spotify data...")
-        enriched_songs = spotify_service.enrich_songs(songs_from_ai, min_popularity=min_popularity)
+        # Keep requesting until we have enough songs that meet popularity criteria
+        enriched_songs = []
+        all_requested_songs = []  # Track all songs we've requested to avoid duplicates
+        max_attempts = 5  # Maximum number of requests to avoid infinite loops
+        attempt = 0
         
+        while len(enriched_songs) < limit and attempt < max_attempts:
+            attempt += 1
+            # Request more songs than needed to account for filtering
+            remaining_needed = limit - len(enriched_songs)
+            request_limit = min(int(remaining_needed * 2) if remaining_needed < 25 else remaining_needed + 15, 50)
+            
+            logger.info(f"Attempt {attempt}: Requesting {request_limit} songs from Gemini (need {remaining_needed} more)...")
+            recommendations = gemini_service.recommend_songs(query, analysis, request_limit, emojis)
+            songs_from_ai = recommendations.get('songs', []) if isinstance(recommendations, dict) else recommendations
+
+            if not songs_from_ai:
+                if attempt == 1:
+                    return jsonify({'success': False, 'songs': [], 'analysis': analysis, 'error': 'No songs found for the given query'}), 404
+                break  # No more songs available
+
+            # Filter out songs we've already processed
+            new_songs = []
+            for song in songs_from_ai:
+                song_key = f"{song.get('title', '').lower()}|{song.get('artist', '').lower()}"
+                if song_key not in all_requested_songs:
+                    new_songs.append(song)
+                    all_requested_songs.append(song_key)
+            
+            if not new_songs:
+                logger.info("No new songs to process, stopping requests")
+                break
+
+            # Enrich songs with Spotify data
+            logger.info(f"Enriching {len(new_songs)} new songs with Spotify data...")
+            new_enriched = spotify_service.enrich_songs(new_songs, min_popularity=min_popularity)
+            enriched_songs.extend(new_enriched)
+            
+            logger.info(f"After attempt {attempt}: Found {len(enriched_songs)}/{limit} songs meeting criteria")
+
         # Limit to requested number of songs
         enriched_songs = enriched_songs[:limit]
+        
+        if len(enriched_songs) < limit:
+            logger.warning(f"Could only find {len(enriched_songs)} songs meeting popularity criteria (requested {limit})")
 
         return jsonify({'success': True, 'songs': enriched_songs, 'analysis': analysis, 'error': None})
 
