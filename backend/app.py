@@ -73,6 +73,7 @@ def search_music():
 
         query = str(data.get('query', '') or '').strip()
         limit = data.get('limit', 10)
+        popularity = data.get('popularity', None)
         emojis_raw = data.get('emojis', [])
 
         # Validate emojis: must be a list of strings, trimmed, deduped, and capped
@@ -107,14 +108,27 @@ def search_music():
                 'error': 'Please provide a search query or select emojis'
             }), 400
         
-        # Validate limit
+        # Validate limit (10-50)
         try:
             limit = int(limit)
-            if limit < 1 or limit > 50:
+            if limit < 10 or limit > 50:
                 limit = 10
         except (ValueError, TypeError):
             limit = 10
-        logger.info(f"Processing search query: '{query}' with limit: {limit} and emojis: {emojis}")
+
+        # Validate popularity (1-10 scale, convert to 0-100 for Spotify)
+        min_popularity = None
+        if popularity is not None:
+            try:
+                popularity_val = int(popularity)
+                if popularity_val >= 1 and popularity_val <= 10:
+                    # Convert 1-10 scale to 0-100 scale
+                    # 1 = 0-10, 2 = 10-20, ..., 10 = 90-100
+                    min_popularity = (popularity_val - 1) * 10
+            except (ValueError, TypeError):
+                pass
+
+        logger.info(f"Processing search query: '{query}' with limit: {limit}, popularity: {min_popularity}, and emojis: {emojis}")
         
         # Check if services are available
         if not gemini_service:
@@ -150,16 +164,16 @@ def search_music():
 
         # Step 2: Enrich songs with Spotify data
         logger.info("Enriching songs with Spotify data...")
-        enriched_songs = spotify_service.enrich_songs(songs_from_ai)
+        enriched_songs = spotify_service.enrich_songs(songs_from_ai, min_popularity=min_popularity)
         
-        # Filter out songs without preview URLs (optional)
-        songs_with_previews = [song for song in enriched_songs if song.get('preview_url')]
+        # Limit to requested number of songs
+        enriched_songs = enriched_songs[:limit]
         
-        logger.info(f"Found {len(enriched_songs)} total songs, {len(songs_with_previews)} with previews")
+        logger.info(f"Found {len(enriched_songs)} songs meeting criteria")
         
         return jsonify({
             'success': True,
-            'songs': enriched_songs,  # Return all songs, not just those with previews
+            'songs': enriched_songs,
             'analysis': analysis,
             'error': None
         })
@@ -230,6 +244,7 @@ def recommend():
 
         query = str(data.get('query', '') or '').strip()
         limit = data.get('limit', 10)
+        popularity = data.get('popularity', None)
         analysis_payload = data.get('analysis', {}) or {}
         emojis_raw = data.get('emojis', [])
 
@@ -251,12 +266,25 @@ def recommend():
         if not query and not emojis:
             return jsonify({'success': False, 'songs': [], 'analysis': {}, 'error': 'Please provide a search query or select emojis'}), 400
 
+        # Validate limit (10-50)
         try:
             limit = int(limit)
-            if limit < 1 or limit > 50:
+            if limit < 10 or limit > 50:
                 limit = 10
         except (ValueError, TypeError):
             limit = 10
+
+        # Validate popularity (1-10 scale, convert to 0-100 for Spotify)
+        min_popularity = None
+        if popularity is not None:
+            try:
+                popularity_val = int(popularity)
+                if popularity_val >= 1 and popularity_val <= 10:
+                    # Convert 1-10 scale to 0-100 scale
+                    # 1 = 0-10, 2 = 10-20, ..., 10 = 90-100
+                    min_popularity = (popularity_val - 1) * 10
+            except (ValueError, TypeError):
+                pass
 
         if not gemini_service:
             return jsonify({'success': False, 'songs': [], 'analysis': {}, 'error': 'Gemini service not configured. Please add GEMINI_API_KEY to .env file.'}), 500
@@ -277,7 +305,10 @@ def recommend():
             return jsonify({'success': False, 'songs': [], 'analysis': analysis, 'error': 'No songs found for the given query'}), 404
 
         logger.info("Enriching songs with Spotify data...")
-        enriched_songs = spotify_service.enrich_songs(songs_from_ai)
+        enriched_songs = spotify_service.enrich_songs(songs_from_ai, min_popularity=min_popularity)
+        
+        # Limit to requested number of songs
+        enriched_songs = enriched_songs[:limit]
 
         return jsonify({'success': True, 'songs': enriched_songs, 'analysis': analysis, 'error': None})
 

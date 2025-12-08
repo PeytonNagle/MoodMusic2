@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { SearchInput } from "./components/SearchInput";
 import { ResultsGrid } from "./components/ResultsGrid";
 import { ApiService, Track } from "./services/api";
@@ -6,6 +6,8 @@ import { ApiService, Track } from "./services/api";
 export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedEmojis, setSelectedEmojis] = useState<string[]>([]);
+  const [songLimit, setSongLimit] = useState<number>(10);
+  const [popularity, setPopularity] = useState<number>(1);
   const [lastSearch, setLastSearch] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isRecommending, setIsRecommending] = useState(false);
@@ -48,9 +50,10 @@ export default function App() {
       setIsRecommending(true);
       const recommendResponse = await ApiService.recommendMusic({
         query: searchQuery,
-        limit: 10,
+        limit: songLimit,
         emojis: hasEmojis ? selectedEmojis : undefined,
         analysis: analysisResponse.analysis,
+        popularity: popularity,
       });
 
       setRawResponse({ analysis: analysisResponse, recommend: recommendResponse });
@@ -101,6 +104,10 @@ export default function App() {
           loadingLabel={isAnalyzing ? "Analyzing..." : isRecommending ? "Finding songs..." : undefined}
           selectedEmojis={selectedEmojis}
           onChangeEmojis={setSelectedEmojis}
+          songLimit={songLimit}
+          onChangeSongLimit={setSongLimit}
+          popularity={popularity}
+          onChangePopularity={setPopularity}
         />
 
         {/* Analysis status */}

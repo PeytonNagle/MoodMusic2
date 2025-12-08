@@ -50,12 +50,13 @@ class SpotifyService:
             logger.error(f"Error searching for track '{title}' by '{artist}': {e}")
             return None
     
-    def enrich_songs(self, songs: List[Dict[str, str]]) -> List[Dict]:
+    def enrich_songs(self, songs: List[Dict[str, str]], min_popularity: Optional[int] = None) -> List[Dict]:
         """
         Enrich a list of songs with Spotify data
         
         Args:
             songs: List of dictionaries with 'title' and 'artist' keys
+            min_popularity: Minimum popularity score (0-100) to filter tracks
             
         Returns:
             List of enriched song dictionaries
@@ -66,6 +67,12 @@ class SpotifyService:
             try:
                 track_data = self.search_track(song['title'], song['artist'])
                 if track_data:
+                    # Filter by popularity if specified
+                    if min_popularity is not None:
+                        track_popularity = track_data.get('popularity', 0)
+                        if track_popularity < min_popularity:
+                            logger.info(f"Skipping {song['title']} by {song['artist']} (popularity: {track_popularity} < {min_popularity})")
+                            continue
                     enriched_songs.append(track_data)
                 else:
                     # If not found, create a basic entry
@@ -159,7 +166,8 @@ class SpotifyService:
             'release_year': (track.get('album', {}).get('release_date', '')[:4]
                              if track.get('album', {}).get('release_date') else None),
             'duration_ms': track.get('duration_ms'),
-            'duration_formatted': self._format_duration(track.get('duration_ms'))
+            'duration_formatted': self._format_duration(track.get('duration_ms')),
+            'popularity': track.get('popularity', 0)
         }
     
     def _format_duration(self, duration_ms: int) -> str:

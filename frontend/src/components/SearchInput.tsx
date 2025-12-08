@@ -1,3 +1,4 @@
+import React from "react";
 import { Search, Sparkles } from "lucide-react";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
@@ -11,6 +12,10 @@ interface SearchInputProps {
   loadingLabel?: string;
   selectedEmojis: string[];
   onChangeEmojis: (next: string[]) => void;
+  songLimit: number;
+  onChangeSongLimit: (limit: number) => void;
+  popularity: number;
+  onChangePopularity: (popularity: number) => void;
 }
 
 export function SearchInput({
@@ -21,6 +26,10 @@ export function SearchInput({
   loadingLabel,
   selectedEmojis,
   onChangeEmojis,
+  songLimit,
+  onChangeSongLimit,
+  popularity,
+  onChangePopularity,
 }: SearchInputProps) {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -48,6 +57,50 @@ export function SearchInput({
             />
             <div className="mt-4">
               <EmojiPicker value={selectedEmojis} onChange={onChangeEmojis} />
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-3">
+                <label htmlFor="song-limit" className="text-sm text-gray-400 whitespace-nowrap">
+                  Number of songs:
+                </label>
+                <input
+                  id="song-limit"
+                  type="number"
+                  min="10"
+                  max="50"
+                  value={songLimit}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10);
+                    if (!isNaN(val) && val >= 10 && val <= 50) {
+                      onChangeSongLimit(val);
+                    }
+                  }}
+                  className="w-20 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50"
+                  disabled={isLoading}
+                />
+                <span className="text-xs text-gray-500">(10-50)</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <label htmlFor="popularity" className="text-sm text-gray-400 whitespace-nowrap">
+                  Min popularity:
+                </label>
+                <input
+                  id="popularity"
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={popularity}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10);
+                    if (!isNaN(val) && val >= 1 && val <= 10) {
+                      onChangePopularity(val);
+                    }
+                  }}
+                  className="w-20 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50"
+                  disabled={isLoading}
+                />
+                <span className="text-xs text-gray-500">(1-10)</span>
+              </div>
             </div>
           </div>
         </div>

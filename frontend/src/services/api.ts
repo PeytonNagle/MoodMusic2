@@ -58,6 +58,7 @@ export interface RecommendRequest {
   query: string;
   limit?: number;
   emojis?: string[];
+  popularity?: number;
   analysis?: {
     mood?: string | null;
     matched_criteria?: string[] | null;
