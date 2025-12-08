@@ -12,6 +12,7 @@ export interface Track {
   spotify_url: string | null;
   release_year: string | null;
   duration_formatted: string | null;
+  popularity: number;
 }
 
 export interface SearchResponse {

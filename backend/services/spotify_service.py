@@ -86,7 +86,8 @@ class SpotifyService:
                         'spotify_url': None,
                         'release_year': None,
                         'duration_ms': None,
-                        'duration_formatted': None
+                        'duration_formatted': None,
+                        'popularity': 0
                     })
             except Exception as e:
                 logger.error(f"Error enriching song {song}: {e}")
@@ -101,7 +102,8 @@ class SpotifyService:
                     'spotify_url': None,
                     'release_year': None,
                     'duration_ms': None,
-                    'duration_formatted': None
+                    'duration_formatted': None,
+                    'popularity': 0
                 })
         
         logger.info(f"Enriched {len(enriched_songs)} songs with Spotify data")
