@@ -1,3 +1,4 @@
+
 import openai
 from typing import List, Dict, Any, Optional
 import json
@@ -224,3 +225,4 @@ class GeminiService:
         elif content.startswith('```'):
             content = content[3:-3]
         return json.loads(content)
+

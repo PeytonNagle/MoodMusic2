@@ -182,6 +182,3 @@ class SpotifyService:
         except Exception as e:
             logger.error(f"Spotify connection test failed: {e}")
             return False
-
-
-
