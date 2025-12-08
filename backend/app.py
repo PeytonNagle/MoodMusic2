@@ -1,10 +1,17 @@
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import logging
 import os
 from config import Config
 from services.gemini_service import GeminiService
+from db import get_connection
 from services.spotify_service import SpotifyService
+import psycopg2.extras
+import json
+
+
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -131,11 +138,15 @@ def search_music():
                 'error': 'Spotify service not configured. Please add SPOTIPY_CLIENT_ID and SPOTIPY_CLIENT_SECRET to .env file.'
             }), 500
         
-        # Step 1: Get song suggestions from Gemini
-        logger.info("Getting song suggestions from Gemini...")
-        suggestions_result = gemini_service.get_song_suggestions(query, limit, emojis)
-        songs_from_ai = suggestions_result.get('songs', []) if isinstance(suggestions_result, dict) else suggestions_result
-        analysis = suggestions_result.get('analysis', {}) if isinstance(suggestions_result, dict) else {}
+        # Step 1: Fast mood/constraint analysis
+        logger.info("Getting mood analysis from Gemini...")
+        analysis_result = gemini_service.analyze_mood(query, emojis)
+        analysis = analysis_result.get('analysis', {}) if isinstance(analysis_result, dict) else {}
+
+        # Step 2: Get song recommendations using the analysis
+        logger.info("Getting song recommendations from Gemini...")
+        recommendations = gemini_service.recommend_songs(query, analysis, limit, emojis)
+        songs_from_ai = recommendations.get('songs', []) if isinstance(recommendations, dict) else recommendations
 
         if not songs_from_ai:
             return jsonify({
@@ -167,6 +178,129 @@ def search_music():
             'songs': [],
             'error': f'Internal server error: {str(e)}'
         }), 500
+
+@app.route('/api/analyze', methods=['POST'])
+def analyze():
+    """Fast mood/constraint analysis endpoint."""
+    try:
+        if not request.is_json:
+            return jsonify({'success': False, 'analysis': {}, 'error': 'Request must be JSON'}), 400
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'analysis': {}, 'error': 'Request body is missing'}), 400
+
+        query = str(data.get('query', '') or '').strip()
+        emojis_raw = data.get('emojis', [])
+
+        emojis = []
+        if emojis_raw is not None:
+            if not isinstance(emojis_raw, list):
+                return jsonify({'success': False, 'analysis': {}, 'error': 'emojis must be an array of strings'}), 400
+            seen = set()
+            for emoji in emojis_raw:
+                if not isinstance(emoji, str):
+                    return jsonify({'success': False, 'analysis': {}, 'error': 'emojis must be strings'}), 400
+                trimmed = emoji.strip()
+                if trimmed and trimmed not in seen:
+                    emojis.append(trimmed)
+                    seen.add(trimmed)
+                if len(emojis) >= 12:
+                    break
+
+        if not query and not emojis:
+            return jsonify({'success': False, 'analysis': {}, 'error': 'Please provide a search query or select emojis'}), 400
+
+        if not gemini_service:
+            return jsonify({'success': False, 'analysis': {}, 'error': 'Gemini service not configured. Please add GEMINI_API_KEY to .env file.'}), 500
+
+        logger.info("Getting mood analysis from Gemini (analyze endpoint)...")
+        analysis_result = gemini_service.analyze_mood(query, emojis)
+        analysis = analysis_result.get('analysis', {}) if isinstance(analysis_result, dict) else {}
+
+        return jsonify({'success': True, 'analysis': analysis, 'error': None})
+
+    except Exception as e:
+        logger.error(f"Error processing analyze request: {e}")
+        return jsonify({'success': False, 'analysis': {}, 'error': f'Internal server error: {str(e)}'}), 500
+
+@app.route('/api/recommend', methods=['POST'])
+def recommend():
+    """Recommend songs using provided analysis (or auto-analyze if missing)."""
+    try:
+        if not request.is_json:
+            return jsonify({'success': False, 'songs': [], 'analysis': {}, 'error': 'Request must be JSON'}), 400
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'songs': [], 'analysis': {}, 'error': 'Request body is missing'}), 400
+
+        query = str(data.get('query', '') or '').strip()
+        limit = data.get('limit', 10)
+        analysis_payload = data.get('analysis', {}) or {}
+        emojis_raw = data.get('emojis', [])
+
+        emojis = []
+        if emojis_raw is not None:
+            if not isinstance(emojis_raw, list):
+                return jsonify({'success': False, 'songs': [], 'analysis': {}, 'error': 'emojis must be an array of strings'}), 400
+            seen = set()
+            for emoji in emojis_raw:
+                if not isinstance(emoji, str):
+                    return jsonify({'success': False, 'songs': [], 'analysis': {}, 'error': 'emojis must be strings'}), 400
+                trimmed = emoji.strip()
+                if trimmed and trimmed not in seen:
+                    emojis.append(trimmed)
+                    seen.add(trimmed)
+                if len(emojis) >= 12:
+                    break
+
+        if not query and not emojis:
+            return jsonify({'success': False, 'songs': [], 'analysis': {}, 'error': 'Please provide a search query or select emojis'}), 400
+
+        try:
+            limit = int(limit)
+            if limit < 1 or limit > 50:
+                limit = 10
+        except (ValueError, TypeError):
+            limit = 10
+
+        if not gemini_service:
+            return jsonify({'success': False, 'songs': [], 'analysis': {}, 'error': 'Gemini service not configured. Please add GEMINI_API_KEY to .env file.'}), 500
+        if not spotify_service:
+            return jsonify({'success': False, 'songs': [], 'analysis': {}, 'error': 'Spotify service not configured. Please add SPOTIPY_CLIENT_ID and SPOTIPY_CLIENT_SECRET to .env file.'}), 500
+
+        analysis = analysis_payload if isinstance(analysis_payload, dict) else {}
+        if not analysis:
+            logger.info("No analysis provided; generating via Gemini...")
+            analysis_result = gemini_service.analyze_mood(query, emojis)
+            analysis = analysis_result.get('analysis', {}) if isinstance(analysis_result, dict) else {}
+
+        logger.info("Getting song recommendations from Gemini (recommend endpoint)...")
+        recommendations = gemini_service.recommend_songs(query, analysis, limit, emojis)
+        songs_from_ai = recommendations.get('songs', []) if isinstance(recommendations, dict) else recommendations
+
+        if not songs_from_ai:
+            return jsonify({'success': False, 'songs': [], 'analysis': analysis, 'error': 'No songs found for the given query'}), 404
+
+        logger.info("Enriching songs with Spotify data...")
+        enriched_songs = spotify_service.enrich_songs(songs_from_ai)
+
+        # --- SAVE REQUEST + SONGS TO DATABASE ---
+        # (these must be INSIDE the function and INSIDE the try block)
+        request_id = save_user_request(query, emojis, limit, analysis)
+
+        for i, song in enumerate(enriched_songs):
+            save_recommended_song(request_id, i + 1, song)
+
+        logger.info(f"Saved request_id={request_id} with {len(enriched_songs)} songs")
+
+        return jsonify({'success': True, 'songs': enriched_songs, 'analysis': analysis, 'error': None})
+
+    except Exception as e:
+        logger.error(f"Error processing recommend request: {e}")
+        return jsonify({'success': False, 'songs': [], 'analysis': {}, 'error': f'Internal server error: {str(e)}'}), 500
+
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
@@ -206,9 +340,84 @@ def root():
         }
     })
 
+
+def save_user_request(query, emojis, limit, analysis):
+    conn = get_connection()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO user_requests (
+                        text_description,
+                        emojis,
+                        num_songs_requested,
+                        gemini_analysis
+                    )
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id;
+                    """,
+                    (
+                        query,
+                        emojis if emojis else None,
+                        limit,
+                        psycopg2.extras.Json(analysis) if analysis else None
+                    )
+                )
+                request_id = cur.fetchone()[0]
+                return request_id
+    finally:
+        conn.close()
+
+
+def save_recommended_song(request_id, position, song):
+    conn = get_connection()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO recommended_songs (
+                        request_id,
+                        position,
+                        spotify_track_id,
+                        title,
+                        artist,
+                        album,
+                        album_art,
+                        preview_url,
+                        spotify_url,
+                        release_year,
+                        duration_ms,
+                        duration_formatted,
+                        why_gemini_chose,
+                        matched_criteria
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                    """,
+                    (
+                        request_id,
+                        position,
+                        song.get("id"),
+                        song.get("title"),
+                        song.get("artist"),
+                        song.get("album"),
+                        song.get("album_art"),
+                        song.get("preview_url"),
+                        song.get("spotify_url"),
+                        song.get("release_year"),
+                        song.get("duration_ms"),
+                        song.get("duration_formatted"),
+                        song.get("why"),
+                        psycopg2.extras.Json(song.get("matched_criteria")) 
+                            if song.get("matched_criteria") else None
+                    )
+                )
+    finally:
+        conn.close()
+
+
 if __name__ == '__main__':
     logger.info("Starting Text-to-Spotify API server...")
     app.run(debug=Config.DEBUG, host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
-
-
 
