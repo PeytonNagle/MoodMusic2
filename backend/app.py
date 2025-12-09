@@ -172,7 +172,7 @@ def search_music():
         })
         
     except Exception as e:
-        logger.error(f"Error processing search request: {e}")
+        logger.exception("Error processing search request")
         return jsonify({
             'success': False,
             'songs': [],
@@ -221,7 +221,7 @@ def analyze():
         return jsonify({'success': True, 'analysis': analysis, 'error': None})
 
     except Exception as e:
-        logger.error(f"Error processing analyze request: {e}")
+        logger.exception("Error processing analyze request")
         return jsonify({'success': False, 'analysis': {}, 'error': f'Internal server error: {str(e)}'}), 500
 
 @app.route('/api/recommend', methods=['POST'])
@@ -298,7 +298,7 @@ def recommend():
         return jsonify({'success': True, 'songs': enriched_songs, 'analysis': analysis, 'error': None})
 
     except Exception as e:
-        logger.error(f"Error processing recommend request: {e}")
+        logger.exception("Error processing recommend request")
         return jsonify({'success': False, 'songs': [], 'analysis': {}, 'error': f'Internal server error: {str(e)}'}), 500
 
 
@@ -322,7 +322,7 @@ def health_check():
         })
         
     except Exception as e:
-        logger.error(f"Health check failed: {e}")
+        logger.exception("Health check failed")
         return jsonify({
             'status': 'unhealthy',
             'error': str(e)
@@ -344,6 +344,8 @@ def root():
 def save_user_request(query, emojis, limit, analysis):
     conn = get_connection()
     try:
+        emojis_payload = psycopg2.extras.Json(emojis) if emojis else None
+        analysis_payload = psycopg2.extras.Json(analysis) if analysis else None
         with conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -359,13 +361,17 @@ def save_user_request(query, emojis, limit, analysis):
                     """,
                     (
                         query,
-                        emojis if emojis else None,
+                        emojis_payload,
                         limit,
-                        psycopg2.extras.Json(analysis) if analysis else None
+                        analysis_payload
                     )
                 )
-                request_id = cur.fetchone()[0]
+                row = cur.fetchone()
+                request_id = row['id'] if row else None
                 return request_id
+    except Exception:
+        logger.exception("Failed to save user request to the database")
+        raise
     finally:
         conn.close()
 
@@ -413,6 +419,9 @@ def save_recommended_song(request_id, position, song):
                             if song.get("matched_criteria") else None
                     )
                 )
+    except Exception:
+        logger.exception("Failed to save recommended song to the database")
+        raise
     finally:
         conn.close()
 
@@ -420,4 +429,3 @@ def save_recommended_song(request_id, position, song):
 if __name__ == '__main__':
     logger.info("Starting Text-to-Spotify API server...")
     app.run(debug=Config.DEBUG, host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
-

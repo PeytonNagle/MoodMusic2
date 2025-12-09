@@ -225,4 +225,3 @@ class GeminiService:
         elif content.startswith('```'):
             content = content[3:-3]
         return json.loads(content)
-
