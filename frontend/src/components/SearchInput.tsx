@@ -14,8 +14,9 @@ interface SearchInputProps {
   onChangeEmojis: (next: string[]) => void;
   songLimit: number;
   onChangeSongLimit: (limit: number) => void;
-  popularity: number;
-  onChangePopularity: (popularity: number) => void;
+  popularityLabel: string;
+  popularityRanges: Record<string, [number, number] | null>;
+  onChangePopularity: (label: string) => void;
 }
 
 export function SearchInput({
@@ -28,7 +29,8 @@ export function SearchInput({
   onChangeEmojis,
   songLimit,
   onChangeSongLimit,
-  popularity,
+  popularityLabel,
+  popularityRanges,
   onChangePopularity,
 }: SearchInputProps) {
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -63,43 +65,42 @@ export function SearchInput({
                 <label htmlFor="song-limit" className="text-sm text-gray-400 whitespace-nowrap">
                   Number of songs:
                 </label>
-                <input
+                <select
                   id="song-limit"
-                  type="number"
-                  min="10"
-                  max="50"
                   value={songLimit}
-                  onChange={(e) => {
-                    const val = parseInt(e.target.value, 10);
-                    if (!isNaN(val) && val >= 10 && val <= 50) {
-                      onChangeSongLimit(val);
-                    }
-                  }}
-                  className="w-20 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50"
+                  onChange={(e) => onChangeSongLimit(parseInt(e.target.value, 10))}
+                  className="w-28 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 select-glass"
                   disabled={isLoading}
-                />
-                <span className="text-xs text-gray-500">(10-50)</span>
+                >
+                  {[10, 15, 20, 25, 30, 40, 50].map((val) => (
+                    <option key={val} value={val} className="bg-gray-900 text-white">
+                      {val}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="flex items-center gap-3">
                 <label htmlFor="popularity" className="text-sm text-gray-400 whitespace-nowrap">
-                  Min popularity:
+                  Popularity:
                 </label>
-                <input
+                <select
                   id="popularity"
-                  type="number"
-                  min="1"
-                  max="10"
-                  value={popularity}
-                  onChange={(e) => {
-                    const val = parseInt(e.target.value, 10);
-                    if (!isNaN(val) && val >= 1 && val <= 10) {
-                      onChangePopularity(val);
-                    }
-                  }}
-                  className="w-20 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50"
+                  value={popularityLabel}
+                  onChange={(e) => onChangePopularity(e.target.value)}
+                  className="w-52 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 select-glass"
                   disabled={isLoading}
-                />
-                <span className="text-xs text-gray-500">(1-10)</span>
+                >
+                  {Object.keys(popularityRanges).map((label) => (
+                    <option key={label} value={label} className="bg-gray-900 text-white">
+                      {label}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-xs text-gray-500">
+                  {popularityRanges[popularityLabel]
+                    ? `${popularityRanges[popularityLabel]?.[0]}–${popularityRanges[popularityLabel]?.[1]}`
+                    : "no filter"}
+                </span>
               </div>
             </div>
           </div>

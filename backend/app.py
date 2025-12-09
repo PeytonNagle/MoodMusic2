@@ -22,6 +22,88 @@ if not Config.validate_config():
 gemini_service = GeminiService(Config.GEMINI_API_KEY) if Config.GEMINI_API_KEY else None
 spotify_service = SpotifyService(Config.SPOTIPY_CLIENT_ID, Config.SPOTIPY_CLIENT_SECRET) if Config.SPOTIPY_CLIENT_ID and Config.SPOTIPY_CLIENT_SECRET else None
 
+# Popularity categories (label -> range) for filtering and Gemini hints
+POPULARITY_RANGES = {
+    "Any": None,
+    "Global / Superstar": (90, 100),
+    "Hot / Established": (75, 89),
+    "Buzzing / Moderate": (50, 74),
+    "Growing": (25, 49),
+    "Rising": (15, 24),
+    "Under the Radar": (0, 14),
+}
+POPULARITY_TOLERANCE = 5
+
+
+def resolve_popularity_constraints(data):
+    """
+    Resolve popularity label/range into filtering bounds and Gemini hint.
+    Supports old numeric 1-10 popularity as a fallback.
+    """
+    popularity_label = data.get("popularity_label")
+    popularity_range = data.get("popularity_range")
+    legacy_popularity = data.get("popularity", None)
+
+    # Normalize provided label
+    label_clean = None
+    if isinstance(popularity_label, str):
+        label_clean = popularity_label.strip()
+        if not label_clean:
+            label_clean = None
+
+    # Prefer explicit range from client if valid
+    range_min = range_max = None
+    if isinstance(popularity_range, list) and len(popularity_range) == 2:
+        try:
+            range_min = int(popularity_range[0])
+            range_max = int(popularity_range[1])
+        except (ValueError, TypeError):
+            range_min = range_max = None
+
+    # If no explicit range, derive from label mapping
+    if (range_min is None or range_max is None) and label_clean:
+        mapped = POPULARITY_RANGES.get(label_clean)
+        if mapped:
+            range_min, range_max = mapped
+        elif label_clean.lower() == "any":
+            range_min = range_max = None
+
+    # Fallback to legacy numeric (1-10 scale -> lower bound on Spotify scale)
+    if range_min is None and range_max is None and legacy_popularity is not None:
+        try:
+            legacy_val = int(legacy_popularity)
+            if 1 <= legacy_val <= 10:
+                lower = (legacy_val - 1) * 10
+                upper = 100
+                range_min, range_max = lower, upper
+        except (ValueError, TypeError):
+            pass
+
+    # Apply tolerance
+    min_pop = max(0, range_min - POPULARITY_TOLERANCE) if range_min is not None else None
+    max_pop = min(100, range_max + POPULARITY_TOLERANCE) if range_max is not None else None
+
+    return {
+        "popularity_label": label_clean,
+        "min_popularity": min_pop,
+        "max_popularity": max_pop,
+    }
+
+
+def filter_by_popularity(songs, min_popularity, max_popularity):
+    """Filter songs list by popularity bounds if provided."""
+    if min_popularity is None and max_popularity is None:
+        return songs
+    filtered = []
+    for song in songs:
+        pop = song.get("popularity", 0) if isinstance(song, dict) else 0
+        if min_popularity is not None and pop < min_popularity:
+            continue
+        if max_popularity is not None and pop > max_popularity:
+            continue
+        filtered.append(song)
+    return filtered
+
 @app.route('/api/search', methods=['POST'])
 def search_music():
     """
@@ -73,7 +155,10 @@ def search_music():
 
         query = str(data.get('query', '') or '').strip()
         limit = data.get('limit', 10)
-        popularity = data.get('popularity', None)
+        popularity_ctx = resolve_popularity_constraints(data)
+        popularity_label = popularity_ctx["popularity_label"]
+        min_popularity = popularity_ctx["min_popularity"]
+        max_popularity = popularity_ctx["max_popularity"]
         emojis_raw = data.get('emojis', [])
 
         # Validate emojis: must be a list of strings, trimmed, deduped, and capped
@@ -116,19 +201,10 @@ def search_music():
         except (ValueError, TypeError):
             limit = 10
 
-        # Validate popularity (1-10 scale, convert to 0-100 for Spotify)
-        min_popularity = None
-        if popularity is not None:
-            try:
-                popularity_val = int(popularity)
-                if popularity_val >= 1 and popularity_val <= 10:
-                    # Convert 1-10 scale to 0-100 scale
-                    # 1 = 0-10, 2 = 10-20, ..., 10 = 90-100
-                    min_popularity = (popularity_val - 1) * 10
-            except (ValueError, TypeError):
-                pass
-
-        logger.info(f"Processing search query: '{query}' with limit: {limit}, popularity: {min_popularity}, and emojis: {emojis}")
+        logger.info(
+            f"Processing search query: '{query}' with limit: {limit}, popularity_label: {popularity_label}, "
+            f"min_popularity: {min_popularity}, max_popularity: {max_popularity}, emojis: {emojis}"
+        )
         
         # Check if services are available
         if not gemini_service:
@@ -164,7 +240,14 @@ def search_music():
             request_limit = min(int(remaining_needed * 2) if remaining_needed < 25 else remaining_needed + 15, 50)
             
             logger.info(f"Attempt {attempt}: Requesting {request_limit} songs from Gemini (need {remaining_needed} more)...")
-            recommendations = gemini_service.recommend_songs(query, analysis, request_limit, emojis)
+            recommendations = gemini_service.recommend_songs(
+                query,
+                analysis,
+                request_limit,
+                emojis,
+                min_popularity=min_popularity,
+                popularity_label=popularity_label,
+            )
             songs_from_ai = recommendations.get('songs', []) if isinstance(recommendations, dict) else recommendations
 
             if not songs_from_ai:
@@ -196,7 +279,7 @@ def search_music():
             logger.info(f"After attempt {attempt}: Found {len(enriched_songs)}/{limit} songs meeting criteria")
 
         # Limit to requested number of songs
-        enriched_songs = enriched_songs[:limit]
+        enriched_songs = filter_by_popularity(enriched_songs, min_popularity, max_popularity)[:limit]
         
         if len(enriched_songs) < limit:
             logger.warning(f"Could only find {len(enriched_songs)} songs meeting popularity criteria (requested {limit})")
@@ -276,7 +359,10 @@ def recommend():
 
         query = str(data.get('query', '') or '').strip()
         limit = data.get('limit', 10)
-        popularity = data.get('popularity', None)
+        popularity_ctx = resolve_popularity_constraints(data)
+        popularity_label = popularity_ctx["popularity_label"]
+        min_popularity = popularity_ctx["min_popularity"]
+        max_popularity = popularity_ctx["max_popularity"]
         analysis_payload = data.get('analysis', {}) or {}
         emojis_raw = data.get('emojis', [])
 
@@ -306,18 +392,6 @@ def recommend():
         except (ValueError, TypeError):
             limit = 10
 
-        # Validate popularity (1-10 scale, convert to 0-100 for Spotify)
-        min_popularity = None
-        if popularity is not None:
-            try:
-                popularity_val = int(popularity)
-                if popularity_val >= 1 and popularity_val <= 10:
-                    # Convert 1-10 scale to 0-100 scale
-                    # 1 = 0-10, 2 = 10-20, ..., 10 = 90-100
-                    min_popularity = (popularity_val - 1) * 10
-            except (ValueError, TypeError):
-                pass
-
         if not gemini_service:
             return jsonify({'success': False, 'songs': [], 'analysis': {}, 'error': 'Gemini service not configured. Please add GEMINI_API_KEY to .env file.'}), 500
         if not spotify_service:
@@ -339,10 +413,17 @@ def recommend():
             attempt += 1
             # Request more songs than needed to account for filtering
             remaining_needed = limit - len(enriched_songs)
-            request_limit = min(int(remaining_needed * 2) if remaining_needed < 25 else remaining_needed + 15, 50)
+            request_limit = min(int(remaining_needed * 1.3)+1 if remaining_needed < 25 else remaining_needed + 15, 50)
             
             logger.info(f"Attempt {attempt}: Requesting {request_limit} songs from Gemini (need {remaining_needed} more)...")
-            recommendations = gemini_service.recommend_songs(query, analysis, request_limit, emojis)
+            recommendations = gemini_service.recommend_songs(
+                query,
+                analysis,
+                request_limit,
+                emojis,
+                min_popularity=min_popularity,
+                popularity_label=popularity_label,
+            )
             songs_from_ai = recommendations.get('songs', []) if isinstance(recommendations, dict) else recommendations
 
             if not songs_from_ai:
@@ -370,7 +451,7 @@ def recommend():
             logger.info(f"After attempt {attempt}: Found {len(enriched_songs)}/{limit} songs meeting criteria")
 
         # Limit to requested number of songs
-        enriched_songs = enriched_songs[:limit]
+        enriched_songs = filter_by_popularity(enriched_songs, min_popularity, max_popularity)[:limit]
         
         if len(enriched_songs) < limit:
             logger.warning(f"Could only find {len(enriched_songs)} songs meeting popularity criteria (requested {limit})")
