@@ -43,7 +43,7 @@ class SpotifyService:
             track = best_match[1]
             track_data = self._build_track_payload(track)
 
-            logger.info(f"Found track: {title} by {artist} (score={best_match[0]:.1f})")
+            logger.info(f"Found track: {title} by {artist}")
             return track_data
 
         except Exception as e:

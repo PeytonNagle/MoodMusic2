@@ -3,6 +3,8 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import logging
 import os
+import threading
+import queue
 from config import Config
 from services.gemini_service import GeminiService
 from db import get_connection
@@ -20,6 +22,31 @@ logger = logging.getLogger(__name__)
 # Initialize Flask app
 app = Flask(__name__)
 CORS(app)  # Enable CORS for frontend
+
+# Background queue for async DB saves
+SAVE_QUEUE: "queue.Queue[dict]" = queue.Queue(maxsize=100)
+
+
+def _save_worker():
+    """Background worker to persist requests/songs without blocking responses."""
+    while True:
+        job = SAVE_QUEUE.get()
+        if job is None:
+            SAVE_QUEUE.task_done()
+            break
+        try:
+            request_id = save_user_request(job["query"], job["emojis"], job["limit"], job["analysis"])
+            for i, song in enumerate(job["songs"]):
+                save_recommended_song(request_id, i + 1, song)
+            logger.info(f"Background save complete (request_id={request_id}, songs={len(job['songs'])})")
+        except Exception:
+            logger.exception("Background save failed")
+        finally:
+            SAVE_QUEUE.task_done()
+
+
+SAVE_WORKER = threading.Thread(target=_save_worker, name="save-worker", daemon=True)
+SAVE_WORKER.start()
 
 # Validate configuration
 if not Config.validate_config():
@@ -40,6 +67,11 @@ POPULARITY_RANGES = {
     "Under the Radar": (0, 14),
 }
 POPULARITY_TOLERANCE = 5
+POPULARITY_EXTRA_TOLERANCE = {
+    "Growing": 10,
+    "Rising": 12,
+    "Under the Radar": 15,
+}
 
 
 def resolve_popularity_constraints(data):
@@ -87,8 +119,9 @@ def resolve_popularity_constraints(data):
             pass
 
     # Apply tolerance
-    min_pop = max(0, range_min - POPULARITY_TOLERANCE) if range_min is not None else None
-    max_pop = min(100, range_max + POPULARITY_TOLERANCE) if range_max is not None else None
+    extra_tol = POPULARITY_EXTRA_TOLERANCE.get(label_clean, 0)
+    min_pop = max(0, range_min - POPULARITY_TOLERANCE - extra_tol) if range_min is not None else None
+    max_pop = min(100, range_max + POPULARITY_TOLERANCE + extra_tol) if range_max is not None else None
 
     return {
         "popularity_label": label_clean,
@@ -233,40 +266,24 @@ def search_music():
         analysis_result = gemini_service.analyze_mood(query, emojis)
         analysis = analysis_result.get('analysis', {}) if isinstance(analysis_result, dict) else {}
 
-        # Step 2: Get song recommendations using the analysis
-        # Keep requesting until we have enough songs that meet popularity criteria
+        # Step 2: Get song recommendations using the analysis (fast: max 2 Gemini calls)
         enriched_songs = []
         all_requested_songs = []  # Track all songs we've requested to avoid duplicates
-        max_attempts = 5  # Maximum number of requests to avoid infinite loops
-        attempt = 0
-        
-        while len(enriched_songs) < limit and attempt < max_attempts:
-            attempt += 1
-            # Request more songs than needed to account for filtering
-            remaining_needed = limit - len(enriched_songs)
-            request_limit = min(int(remaining_needed * 2) if remaining_needed < 25 else remaining_needed + 15, 50)
-            
-            logger.info(f"Attempt {attempt}: Requesting {request_limit} songs from Gemini (need {remaining_needed} more)...")
+        max_attempts = 2
+
+        def request_and_enrich(num_songs):
             recommendations = gemini_service.recommend_songs(
                 query,
                 analysis,
-                request_limit,
+                num_songs,
                 emojis,
                 min_popularity=min_popularity,
                 popularity_label=popularity_label,
             )
             songs_from_ai = recommendations.get('songs', []) if isinstance(recommendations, dict) else recommendations
-
             if not songs_from_ai:
-                if attempt == 1:
-                    return jsonify({
-                        'success': False,
-                        'songs': [],
-                        'error': 'No songs found for the given query'
-                    }), 404
-                break  # No more songs available
+                return []
 
-            # Filter out songs we've already processed
             new_songs = []
             for song in songs_from_ai:
                 song_key = f"{song.get('title', '').lower()}|{song.get('artist', '').lower()}"
@@ -275,18 +292,42 @@ def search_music():
                     all_requested_songs.append(song_key)
             
             if not new_songs:
-                logger.info("No new songs to process, stopping requests")
-                break
+                return []
 
-            # Enrich songs with Spotify data
             logger.info(f"Enriching {len(new_songs)} new songs with Spotify data...")
-            new_enriched = spotify_service.enrich_songs(new_songs, min_popularity=min_popularity)
-            enriched_songs.extend(new_enriched)
-            
-            logger.info(f"After attempt {attempt}: Found {len(enriched_songs)}/{limit} songs meeting criteria")
+            return spotify_service.enrich_songs(new_songs, min_popularity=min_popularity)
 
+        attempt = 0
+        first_num_songs = min(limit * 1.5, 30)
+        attempt += 1
+        logger.info(f"Attempt {attempt}: Requesting {first_num_songs} songs from Gemini (target {limit})...")
+        enriched_songs.extend(request_and_enrich(first_num_songs))
+
+        filtered_count = len(filter_by_popularity(enriched_songs, min_popularity, max_popularity))
+        if attempt < max_attempts and filtered_count < max(1, limit // 2):
+            remaining_needed = limit - filtered_count
+            second_num_songs = min(max(remaining_needed * 2, 5), 50)
+            attempt += 1
+            logger.info(f"Attempt {attempt}: Requesting {second_num_songs} songs from Gemini (need ~{remaining_needed} more after filtering)...")
+            enriched_songs.extend(request_and_enrich(second_num_songs))
+
+        attempts_exhausted = attempt >= max_attempts or len(filter_by_popularity(enriched_songs, min_popularity, max_popularity)) < limit
         # Limit to requested number of songs
-        enriched_songs = filter_by_popularity(enriched_songs, min_popularity, max_popularity)[:limit]
+        filtered = filter_by_popularity(enriched_songs, min_popularity, max_popularity)
+        if attempts_exhausted and len(filtered) < limit and enriched_songs:
+            logger.warning("Popularity filter removed some/all songs; padding with unfiltered results (final attempt).")
+            seen = {f"{(s.get('title') or '').lower()}|{(s.get('artist') or '').lower()}" for s in filtered}
+            padded = list(filtered)
+            for s in enriched_songs:
+                if len(padded) >= limit:
+                    break
+                key = f"{(s.get('title') or '').lower()}|{(s.get('artist') or '').lower()}"
+                if key in seen:
+                    continue
+                seen.add(key)
+                padded.append(s)
+            filtered = padded
+        enriched_songs = filtered[:limit]
         
         if len(enriched_songs) < limit:
             logger.warning(f"Could only find {len(enriched_songs)} songs meeting popularity criteria (requested {limit})")
@@ -410,23 +451,16 @@ def recommend():
             analysis_result = gemini_service.analyze_mood(query, emojis)
             analysis = analysis_result.get('analysis', {}) if isinstance(analysis_result, dict) else {}
 
-        # Keep requesting until we have enough songs that meet popularity criteria
+        # Keep requesting until we have enough songs that meet popularity criteria (fast: max 2 Gemini calls)
         enriched_songs = []
         all_requested_songs = []  # Track all songs we've requested to avoid duplicates
-        max_attempts = 5  # Maximum number of requests to avoid infinite loops
-        attempt = 0
-        
-        while len(enriched_songs) < limit and attempt < max_attempts:
-            attempt += 1
-            # Request more songs than needed to account for filtering
-            remaining_needed = limit - len(enriched_songs)
-            request_limit = min(int(remaining_needed * 1.3)+1 if remaining_needed < 25 else remaining_needed + 15, 50)
-            
-            logger.info(f"Attempt {attempt}: Requesting {request_limit} songs from Gemini (need {remaining_needed} more)...")
+        max_attempts = 2
+
+        def request_and_enrich(num_songs):
             recommendations = gemini_service.recommend_songs(
                 query,
                 analysis,
-                request_limit,
+                num_songs,
                 emojis,
                 min_popularity=min_popularity,
                 popularity_label=popularity_label,
@@ -434,11 +468,8 @@ def recommend():
             songs_from_ai = recommendations.get('songs', []) if isinstance(recommendations, dict) else recommendations
 
             if not songs_from_ai:
-                if attempt == 1:
-                    return jsonify({'success': False, 'songs': [], 'analysis': analysis, 'error': 'No songs found for the given query'}), 404
-                break  # No more songs available
+                return []
 
-            # Filter out songs we've already processed
             new_songs = []
             for song in songs_from_ai:
                 song_key = f"{song.get('title', '').lower()}|{song.get('artist', '').lower()}"
@@ -447,30 +478,55 @@ def recommend():
                     all_requested_songs.append(song_key)
             
             if not new_songs:
-                logger.info("No new songs to process, stopping requests")
-                break
+                return []
 
-            # Enrich songs with Spotify data
             logger.info(f"Enriching {len(new_songs)} new songs with Spotify data...")
-            new_enriched = spotify_service.enrich_songs(new_songs, min_popularity=min_popularity)
-            enriched_songs.extend(new_enriched)
-            
-            logger.info(f"After attempt {attempt}: Found {len(enriched_songs)}/{limit} songs meeting criteria")
+            return spotify_service.enrich_songs(new_songs, min_popularity=min_popularity)
 
+        attempt = 0
+        # Request sizing: smaller for high-popularity tiers, larger for low-popularity tiers
+        if popularity_label in ("Global / Superstar", "Hot / Established"):
+            first_num_songs = min(int(limit * 1.3), 50)
+        elif popularity_label in ("Growing", "Rising", "Under the Radar"):
+            first_num_songs = min(limit * 2, 50)
+        elif popularity_label in ("Any"):
+            first_num_songs = limit
+        else:
+            first_num_songs = min(limit * 1.6, 50)
+        attempt += 1
+        logger.info(f"Attempt {attempt}: Requesting {first_num_songs} songs from Gemini (target {limit})...")
+        enriched_songs.extend(request_and_enrich(first_num_songs))
+
+        filtered_count = len(filter_by_popularity(enriched_songs, min_popularity, max_popularity))
+        if attempt < max_attempts and filtered_count < max(1, limit // 2):
+            remaining_needed = limit - filtered_count
+            second_num_songs = min(remaining_needed * 2, 50)
+            attempt += 1
+            logger.info(f"Attempt {attempt}: Requesting {second_num_songs} songs from Gemini (need ~{remaining_needed} more after filtering)...")
+            enriched_songs.extend(request_and_enrich(second_num_songs))
+
+        attempts_exhausted = attempt >= max_attempts or len(filter_by_popularity(enriched_songs, min_popularity, max_popularity)) < limit
         # Limit to requested number of songs
-        enriched_songs = filter_by_popularity(enriched_songs, min_popularity, max_popularity)[:limit]
+        filtered = filter_by_popularity(enriched_songs, min_popularity, max_popularity)
+        if attempts_exhausted and len(filtered) < limit and enriched_songs:
+            logger.warning("Popularity filter removed some/all songs; padding with unfiltered results (final attempt).")
+            filtered = (filtered + enriched_songs)[:limit]
+        enriched_songs = filtered[:limit]
         
         if len(enriched_songs) < limit:
             logger.warning(f"Could only find {len(enriched_songs)} songs meeting popularity criteria (requested {limit})")
 
-        # --- SAVE REQUEST + SONGS TO DATABASE ---
-        # (these must be INSIDE the function and INSIDE the try block)
-        request_id = save_user_request(query, emojis, limit, analysis)
-
-        for i, song in enumerate(enriched_songs):
-            save_recommended_song(request_id, i + 1, song)
-
-        logger.info(f"Saved request_id={request_id} with {len(enriched_songs)} songs")
+        # --- ASYNC SAVE REQUEST + SONGS TO DATABASE ---
+        try:
+            SAVE_QUEUE.put_nowait({
+                "query": query,
+                "emojis": emojis,
+                "limit": limit,
+                "analysis": analysis,
+                "songs": enriched_songs,
+            })
+        except queue.Full:
+            logger.warning("Save queue is full; skipping async DB save for this request.")
 
         return jsonify({'success': True, 'songs': enriched_songs, 'analysis': analysis, 'error': None})
 
