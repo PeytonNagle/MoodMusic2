@@ -66,6 +66,10 @@ class SpotifyService:
             try:
                 track_data = self.search_track(song['title'], song['artist'])
                 if track_data:
+                    track_data.update({
+                        'why': song.get('why'),
+                        'matched_criteria': song.get('matched_criteria')
+                    })
                     enriched_songs.append(track_data)
                 else:
                     # If not found, create a basic entry
@@ -79,7 +83,9 @@ class SpotifyService:
                         'spotify_url': None,
                         'release_year': None,
                         'duration_ms': None,
-                        'duration_formatted': None
+                        'duration_formatted': None,
+                        'why': song.get('why'),
+                        'matched_criteria': song.get('matched_criteria')
                     })
             except Exception as e:
                 logger.error(f"Error enriching song {song}: {e}")
@@ -94,7 +100,9 @@ class SpotifyService:
                     'spotify_url': None,
                     'release_year': None,
                     'duration_ms': None,
-                    'duration_formatted': None
+                    'duration_formatted': None,
+                    'why': song.get('why'),
+                    'matched_criteria': song.get('matched_criteria')
                 })
         
         logger.info(f"Enriched {len(enriched_songs)} songs with Spotify data")
