@@ -87,6 +87,8 @@ def resolve_popularity_constraints(data):
     label_clean = None
     if isinstance(popularity_label, str):
         label_clean = popularity_label.strip()
+        if label_clean.lower() == "any":
+            label_clean = "Any"
         if not label_clean:
             label_clean = None
 
@@ -131,9 +133,42 @@ def resolve_popularity_constraints(data):
 
 
 def filter_by_popularity(songs, min_popularity, max_popularity):
-    """Filter songs list by popularity bounds if provided."""
+    """Filter songs list by popularity bounds if provided, deduping by id/title/artist."""
+    return filter_by_popularity_with_seen(songs, min_popularity, max_popularity, seen_keys=None)
+
+
+def _song_identity(song):
+    """Build a stable key for a song using id when present, else title|artist."""
+    if not isinstance(song, dict):
+        return None
+    song_id = song.get("id")
+    if song_id:
+        return f"id:{str(song_id).strip().lower()}"
+    title = str(song.get("title", "") or "").strip().lower()
+    artist = str(song.get("artist", "") or "").strip().lower()
+    if title or artist:
+        return f"{title}|{artist}"
+    return None
+
+
+def add_unique_songs(target_list, songs, seen_keys):
+    """Append only new songs to target_list using provided seen_keys set."""
+    for song in songs or []:
+        key = _song_identity(song)
+        if key and key in seen_keys:
+            continue
+        if key:
+            seen_keys.add(key)
+        target_list.append(song)
+    return target_list
+
+
+def filter_by_popularity_with_seen(songs, min_popularity, max_popularity, seen_keys=None):
+    """Filter songs list by popularity bounds if provided, deduping against seen_keys."""
+    if seen_keys is None:
+        seen_keys = set()
     if min_popularity is None and max_popularity is None:
-        return songs
+        return add_unique_songs([], songs, seen_keys)
     filtered = []
     for song in songs:
         pop = song.get("popularity", 0) if isinstance(song, dict) else 0
@@ -141,6 +176,11 @@ def filter_by_popularity(songs, min_popularity, max_popularity):
             continue
         if max_popularity is not None and pop > max_popularity:
             continue
+        key = _song_identity(song)
+        if key and key in seen_keys:
+            continue
+        if key:
+            seen_keys.add(key)
         filtered.append(song)
     return filtered
 
@@ -268,6 +308,7 @@ def search_music():
 
         # Step 2: Get song recommendations using the analysis (fast: max 2 Gemini calls)
         enriched_songs = []
+        enriched_seen = set()
         all_requested_songs = []  # Track all songs we've requested to avoid duplicates
         max_attempts = 2
 
@@ -295,7 +336,10 @@ def search_music():
                 return []
 
             logger.info(f"Enriching {len(new_songs)} new songs with Spotify data...")
-            return spotify_service.enrich_songs(new_songs, min_popularity=min_popularity)
+            enriched_batch = spotify_service.enrich_songs(new_songs, min_popularity=min_popularity)
+            deduped_batch = []
+            add_unique_songs(deduped_batch, enriched_batch, enriched_seen)
+            return deduped_batch
 
         attempt = 0
         first_num_songs = min(limit * 1.5, 30)
@@ -311,21 +355,16 @@ def search_music():
             logger.info(f"Attempt {attempt}: Requesting {second_num_songs} songs from Gemini (need ~{remaining_needed} more after filtering)...")
             enriched_songs.extend(request_and_enrich(second_num_songs))
 
-        attempts_exhausted = attempt >= max_attempts or len(filter_by_popularity(enriched_songs, min_popularity, max_popularity)) < limit
-        # Limit to requested number of songs
-        filtered = filter_by_popularity(enriched_songs, min_popularity, max_popularity)
+        filtered = filter_by_popularity_with_seen(enriched_songs, min_popularity, max_popularity, set())
+        filtered_seen = {k for k in (_song_identity(s) for s in filtered) if k}
+        attempts_exhausted = attempt >= max_attempts or len(filtered) < limit
         if attempts_exhausted and len(filtered) < limit and enriched_songs:
             logger.warning("Popularity filter removed some/all songs; padding with unfiltered results (final attempt).")
-            seen = {f"{(s.get('title') or '').lower()}|{(s.get('artist') or '').lower()}" for s in filtered}
             padded = list(filtered)
             for s in enriched_songs:
                 if len(padded) >= limit:
                     break
-                key = f"{(s.get('title') or '').lower()}|{(s.get('artist') or '').lower()}"
-                if key in seen:
-                    continue
-                seen.add(key)
-                padded.append(s)
+                add_unique_songs(padded, [s], filtered_seen)
             filtered = padded
         enriched_songs = filtered[:limit]
         
@@ -453,6 +492,7 @@ def recommend():
 
         # Keep requesting until we have enough songs that meet popularity criteria (fast: max 2 Gemini calls)
         enriched_songs = []
+        enriched_seen = set()
         all_requested_songs = []  # Track all songs we've requested to avoid duplicates
         max_attempts = 2
 
@@ -481,7 +521,10 @@ def recommend():
                 return []
 
             logger.info(f"Enriching {len(new_songs)} new songs with Spotify data...")
-            return spotify_service.enrich_songs(new_songs, min_popularity=min_popularity)
+            enriched_batch = spotify_service.enrich_songs(new_songs, min_popularity=min_popularity)
+            deduped_batch = []
+            add_unique_songs(deduped_batch, enriched_batch, enriched_seen)
+            return deduped_batch
 
         attempt = 0
         # Request sizing: smaller for high-popularity tiers, larger for low-popularity tiers
@@ -489,7 +532,7 @@ def recommend():
             first_num_songs = min(int(limit * 1.3), 50)
         elif popularity_label in ("Growing", "Rising", "Under the Radar"):
             first_num_songs = min(limit * 2, 50)
-        elif popularity_label in ("Any"):
+        elif popularity_label == "Any":
             first_num_songs = limit
         else:
             first_num_songs = min(limit * 1.6, 50)
@@ -505,12 +548,17 @@ def recommend():
             logger.info(f"Attempt {attempt}: Requesting {second_num_songs} songs from Gemini (need ~{remaining_needed} more after filtering)...")
             enriched_songs.extend(request_and_enrich(second_num_songs))
 
-        attempts_exhausted = attempt >= max_attempts or len(filter_by_popularity(enriched_songs, min_popularity, max_popularity)) < limit
-        # Limit to requested number of songs
-        filtered = filter_by_popularity(enriched_songs, min_popularity, max_popularity)
+        filtered = filter_by_popularity_with_seen(enriched_songs, min_popularity, max_popularity, set())
+        filtered_seen = {k for k in (_song_identity(s) for s in filtered) if k}
+        attempts_exhausted = attempt >= max_attempts or len(filtered) < limit
         if attempts_exhausted and len(filtered) < limit and enriched_songs:
             logger.warning("Popularity filter removed some/all songs; padding with unfiltered results (final attempt).")
-            filtered = (filtered + enriched_songs)[:limit]
+            padded = list(filtered)
+            for s in enriched_songs:
+                if len(padded) >= limit:
+                    break
+                add_unique_songs(padded, [s], filtered_seen)
+            filtered = padded[:limit]
         enriched_songs = filtered[:limit]
         
         if len(enriched_songs) < limit:
