@@ -12,6 +12,7 @@ export interface Track {
   spotify_url: string | null;
   release_year: string | null;
   duration_formatted: string | null;
+  popularity: number;
 }
 
 export interface SearchResponse {
@@ -47,6 +48,9 @@ export interface SearchRequest {
   query: string;
   limit?: number;
   emojis?: string[];
+  popularity_label?: string;
+  popularity_range?: [number, number];
+  popularity?: number; // legacy numeric support
 }
 
 export interface AnalyzeRequest {
@@ -58,6 +62,9 @@ export interface RecommendRequest {
   query: string;
   limit?: number;
   emojis?: string[];
+  popularity_label?: string;
+  popularity_range?: [number, number];
+  popularity?: number; // legacy numeric support
   analysis?: {
     mood?: string | null;
     matched_criteria?: string[] | null;

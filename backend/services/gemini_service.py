@@ -82,7 +82,7 @@ class GeminiService:
             return {"analysis": analysis}
 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON from Gemini analysis: {e}")
+            logger.error(f"Failed to parse JSON from Gemini analysis: {e} | raw={content!r}")
             raise ValueError("Invalid JSON response from Gemini")
         except Exception as e:
             logger.error(f"Error getting mood analysis from Gemini: {e}")
@@ -95,6 +95,8 @@ class GeminiService:
         num_songs: int = 10,
         emojis: Optional[List[str]] = None,
         model: Optional[str] = None,
+        min_popularity: Optional[int] = None,
+        popularity_label: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Get song suggestions based on text description and prior analysis.
@@ -107,14 +109,24 @@ class GeminiService:
                 if emojis else "No emoji tags provided by the user."
             )
             analysis_json = json.dumps(analysis or {}, ensure_ascii=False)
+            popularity_hint = (
+                f" Favor mainstream tracks likely scoring >= {min_popularity} on Spotify popularity. Avoid niche/deep cuts that might fail the filter."
+                if min_popularity is not None
+                else ""
+            )
+            label_hint = (
+                f" Use the '{popularity_label}' popularity category when choosing track recommendations."
+                if popularity_label
+                else ""
+            )
 
             prompt = f"""
             User request: "{text_description}"
             {emoji_context}
             Prior analysis JSON: {analysis_json}
 
-            Using that analysis, suggest {num_songs} real, popular songs available on Spotify.
-            Prioritize the mood/criteria first, then any explicit genres or artists.
+            Using that analysis, suggest exactly {num_songs} real, popular songs available on Spotify.
+            Prioritize the mood/criteria first, then any explicit genres or artists.{popularity_hint}{label_hint}
 
             Return ONLY valid JSON:
             {{
@@ -124,8 +136,13 @@ class GeminiService:
               ]
             }}
 
-            Rules: keep 'why' brief, keep matched_criteria as short tags, ensure songs are real and likely on Spotify, no extra text.
+            Rules: keep 'why' brief, keep matched_criteria as short tags, ensure songs are real and likely on Spotify, no extra text. Skip any song you are not confident is popular enough on Spotify.
             """
+
+            # Scale token budget to requested song count to reduce wasted tokens on small requests
+            base_tokens = 900
+            per_song_tokens = 60
+            max_tokens = min(base_tokens + num_songs * per_song_tokens, 3600)
 
             def _run_recommendation(max_tokens: int):
                 return self.client.chat.completions.create(
@@ -142,14 +159,15 @@ class GeminiService:
                     response_format={"type": "json_object"},
                 )
 
-            response = _run_recommendation(3000)
+            response = _run_recommendation(max_tokens)
             choice = response.choices[0]
             content = choice.message.content
 
             # Retry once if we hit length or got no content
             if content is None or choice.finish_reason == "length":
                 logger.info("Gemini recommendation retry triggered (content missing or length finish).")
-                response = _run_recommendation(4000)
+                retry_max_tokens = min(int(max_tokens * 1.3), 5000)
+                response = _run_recommendation(retry_max_tokens)
                 choice = response.choices[0]
                 content = choice.message.content
 
@@ -173,11 +191,14 @@ class GeminiService:
                 if not isinstance(song, dict) or 'title' not in song or 'artist' not in song:
                     raise ValueError("Invalid song structure")
 
+            # Trim any over-generation to the requested count
+            songs = songs[:num_songs]
+
             logger.info(f"Successfully got {len(songs)} song suggestions from Gemini (emojis: {emojis or []})")
             return {'songs': songs}
 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON from Gemini response: {e}")
+            logger.error(f"Failed to parse JSON from Gemini response: {e} | raw={content!r}")
             raise ValueError("Invalid JSON response from Gemini")
         except Exception as e:
             logger.error(f"Error getting song suggestions from Gemini: {e}")
