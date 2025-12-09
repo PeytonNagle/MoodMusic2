@@ -60,6 +60,7 @@ CREATE INDEX IF NOT EXISTS idx_user_requests_created_at
 CREATE TABLE recommended_songs (
     id                   SERIAL PRIMARY KEY,
     request_id           INTEGER NOT NULL REFERENCES user_requests(id) ON DELETE CASCADE,
+    user_id              INTEGER REFERENCES users(id) ON DELETE SET NULL,
 
     -- Order in the list (1..N)
     position             INTEGER NOT NULL,
@@ -88,3 +89,6 @@ CREATE TABLE recommended_songs (
 -- Index to quickly get all songs for a request in order
 CREATE INDEX IF NOT EXISTS idx_recommended_songs_request_id_position
     ON recommended_songs (request_id, position);
+
+CREATE INDEX IF NOT EXISTS idx_recommended_songs_user_id
+    ON recommended_songs (user_id);

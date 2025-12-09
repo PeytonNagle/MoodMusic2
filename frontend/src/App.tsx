@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { SearchInput } from "./components/SearchInput";
 import { ResultsGrid } from "./components/ResultsGrid";
-import { ApiService, Track } from "./services/api";
+import { ApiService, Track, User } from "./services/api";
 
 export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -14,7 +14,48 @@ export default function App() {
   const [rawResponse, setRawResponse] = useState<any | null>(null);
   const [analysis, setAnalysis] = useState<{ mood?: string | null; matched_criteria?: string[] | null } | null>(null);
 
+  const [user, setUser] = useState<User | null>(null);
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authDisplayName, setAuthDisplayName] = useState("");
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(false);
+
   const isLoading = isAnalyzing || isRecommending;
+
+  const handleAuthSubmit = async () => {
+    setAuthError(null);
+    setIsAuthLoading(true);
+    try {
+      const payload: { email: string; password: string; display_name?: string } = {
+        email: authEmail.trim().toLowerCase(),
+        password: authPassword,
+      };
+      if (authMode === "register" && authDisplayName.trim()) {
+        payload.display_name = authDisplayName.trim();
+      }
+
+      const response =
+        authMode === "login"
+          ? await ApiService.loginUser(payload)
+          : await ApiService.registerUser(payload);
+
+      if (response.success && response.user) {
+        setUser(response.user);
+        setAuthEmail("");
+        setAuthPassword("");
+        setAuthDisplayName("");
+      } else {
+        setAuthError(response.error || "Unable to complete request");
+      }
+    } catch (err) {
+      console.error("Auth error:", err);
+      setAuthError("Unexpected error. Please try again.");
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
 
   const handleSearch = async () => {
     const hasQuery = searchQuery.trim().length > 0;
@@ -51,6 +92,7 @@ export default function App() {
         limit: 10,
         emojis: hasEmojis ? selectedEmojis : undefined,
         analysis: analysisResponse.analysis,
+        user_id: user?.id,
       });
 
       setRawResponse({ analysis: analysisResponse, recommend: recommendResponse });
@@ -75,14 +117,12 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black">
-      {/* Background decorative elements */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-0 right-0 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl" />
         <div className="absolute bottom-0 left-0 w-96 h-96 bg-pink-500/20 rounded-full blur-3xl" />
       </div>
 
       <div className="relative z-10 px-6 py-12">
-        {/* Header */}
         <div className="max-w-7xl mx-auto mb-12">
           <div className="text-center mb-8">
             <h1 className="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent mb-2">
@@ -92,7 +132,81 @@ export default function App() {
           </div>
         </div>
 
-        {/* Search Input */}
+        <div className="max-w-md mx-auto mb-10 bg-white/5 border border-white/10 rounded-2xl p-6 shadow-xl">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <p className="text-sm text-gray-400 uppercase tracking-widest">Account</p>
+              <h2 className="text-xl font-semibold text-white">
+                {user ? "Welcome back" : authMode === "login" ? "Log in" : "Create an account"}
+              </h2>
+            </div>
+            {user && (
+              <button
+                onClick={() => setUser(null)}
+                className="text-sm text-purple-300 hover:text-purple-100 transition"
+              >
+                Log out
+              </button>
+            )}
+          </div>
+
+          {!user && (
+            <>
+              <div className="space-y-3">
+                <input
+                  type="email"
+                  placeholder="Email"
+                  className="w-full rounded-xl bg-white/10 border border-white/20 px-4 py-2.5 text-white placeholder-gray-400 focus:outline-none focus:border-purple-400"
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                />
+                <input
+                  type="password"
+                  placeholder="Password"
+                  className="w-full rounded-xl bg-white/10 border border-white/20 px-4 py-2.5 text-white placeholder-gray-400 focus:outline-none focus:border-purple-400"
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                />
+                {authMode === "register" && (
+                  <input
+                    type="text"
+                    placeholder="Display name (optional)"
+                    className="w-full rounded-xl bg-white/10 border border-white/20 px-4 py-2.5 text-white placeholder-gray-400 focus:outline-none focus:border-purple-400"
+                    value={authDisplayName}
+                    onChange={(e) => setAuthDisplayName(e.target.value)}
+                  />
+                )}
+              </div>
+
+              <button
+                onClick={handleAuthSubmit}
+                disabled={isAuthLoading || !authEmail || !authPassword}
+                className="w-full mt-4 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 py-2.5 text-white font-semibold shadow-lg shadow-purple-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isAuthLoading ? "Please wait…" : authMode === "login" ? "Log in" : "Register"}
+              </button>
+
+              <button
+                onClick={() => {
+                  setAuthMode(authMode === "login" ? "register" : "login");
+                  setAuthError(null);
+                }}
+                className="w-full mt-3 text-sm text-gray-400 hover:text-white transition"
+              >
+                {authMode === "login" ? "Need an account? Register" : "Already have an account? Log in"}
+              </button>
+
+              {authError && <p className="text-sm text-red-400 mt-3 text-center">{authError}</p>}
+            </>
+          )}
+
+          {user && (
+            <div className="mt-4 text-sm text-gray-300">
+              Signed in as <span className="text-white font-medium">{user.display_name || user.email}</span>
+            </div>
+          )}
+        </div>
+
         <SearchInput
           value={searchQuery}
           onChange={setSearchQuery}
@@ -103,10 +217,9 @@ export default function App() {
           onChangeEmojis={setSelectedEmojis}
         />
 
-        {/* Analysis status */}
         {(isAnalyzing || analysis) && (
           <div className="w-full max-w-4xl mx-auto mt-6">
-            <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-start justify-between">
+            <div className="bg-white/5 border border白/10 rounded-xl p-4 flex items-start justify-between">
               <div>
                 <div className="text-sm text-gray-400 mb-1">Mood analysis</div>
                 {analysis ? (
@@ -142,10 +255,8 @@ export default function App() {
           </div>
         )}
 
-        {/* Results */}
         <ResultsGrid songs={results} searchQuery={lastSearch} />
 
-        {/* Error state */}
         {error && (
           <div className="w-full max-w-4xl mx-auto mt-8">
             <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-6 text-center">
@@ -155,7 +266,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Empty state */}
         {!isLoading && results.length === 0 && !error && (
           <div className="text-center mt-20">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-white/5 border border-white/10 mb-4">
@@ -173,7 +283,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Gemini JSON output viewer */}
         {rawResponse && (
           <div className="w-full max-w-4xl mx-auto mt-10">
             <div className="bg-white/5 border border-white/10 rounded-xl overflow-hidden">
@@ -182,12 +291,11 @@ export default function App() {
                 <span className="text-xs text-gray-500">debug</span>
               </div>
               <pre className="p-4 text-xs text-gray-300 overflow-auto max-h-80 whitespace-pre-wrap">
-{JSON.stringify(
-  // Prefer gemini-specific suggestions if backend adds them later
-  (rawResponse as any).ai_suggestions ?? (rawResponse as any).suggestions ?? rawResponse,
-  null,
-  2
-)}
+                {JSON.stringify(
+                  (rawResponse as any).ai_suggestions ?? (rawResponse as any).suggestions ?? rawResponse,
+                  null,
+                  2
+                )}
               </pre>
             </div>
           </div>

@@ -9,6 +9,9 @@ from db import get_connection
 from services.spotify_service import SpotifyService
 import psycopg2.extras
 import json
+from werkzeug.security import generate_password_hash, check_password_hash
+from psycopg2 import errors
+from db_queries import create_user, get_user_by_email
 
 
 
@@ -238,6 +241,11 @@ def recommend():
         query = str(data.get('query', '') or '').strip()
         limit = data.get('limit', 10)
         analysis_payload = data.get('analysis', {}) or {}
+        user_id_raw = data.get('user_id')
+        try:
+            user_id = int(user_id_raw)
+        except (ValueError, TypeError):
+            user_id = None
         emojis_raw = data.get('emojis', [])
 
         emojis = []
@@ -288,10 +296,10 @@ def recommend():
 
         # --- SAVE REQUEST + SONGS TO DATABASE ---
         # (these must be INSIDE the function and INSIDE the try block)
-        request_id = save_user_request(query, emojis, limit, analysis)
+        request_id = save_user_request(query, emojis, limit, analysis, user_id)
 
         for i, song in enumerate(enriched_songs):
-            save_recommended_song(request_id, i + 1, song)
+            save_recommended_song(request_id, i + 1, song, user_id)
 
         logger.info(f"Saved request_id={request_id} with {len(enriched_songs)} songs")
 
@@ -341,7 +349,72 @@ def root():
     })
 
 
-def save_user_request(query, emojis, limit, analysis):
+@app.route('/api/users/register', methods=['POST'])
+def register_user():
+    """Register a new user with email + password hash."""
+    try:
+        if not request.is_json:
+            return jsonify({'success': False, 'error': 'Request must be JSON'}), 400
+
+        data = request.get_json() or {}
+        email = str(data.get('email', '') or '').strip().lower()
+        password = data.get('password', '')
+        display_name = str(data.get('display_name', '') or '').strip() or None
+
+        if not email or not password:
+            return jsonify({'success': False, 'error': 'Email and password are required'}), 400
+
+        password_hash = generate_password_hash(password)
+        try:
+            user = create_user(email, password_hash, display_name)
+        except errors.UniqueViolation:
+            return jsonify({'success': False, 'error': 'Email already registered'}), 409
+
+        public_user = {
+            'id': user['id'],
+            'email': user['email'],
+            'display_name': user.get('display_name'),
+            'created_at': user.get('created_at')
+        }
+        return jsonify({'success': True, 'user': public_user}), 201
+
+    except Exception:
+        logger.exception("Error registering user")
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+
+@app.route('/api/users/login', methods=['POST'])
+def login_user():
+    """Simple email/password login check."""
+    try:
+        if not request.is_json:
+            return jsonify({'success': False, 'error': 'Request must be JSON'}), 400
+
+        data = request.get_json() or {}
+        email = str(data.get('email', '') or '').strip().lower()
+        password = data.get('password', '')
+
+        if not email or not password:
+            return jsonify({'success': False, 'error': 'Email and password are required'}), 400
+
+        user = get_user_by_email(email)
+        if not user or not check_password_hash(user['password_hash'], password):
+            return jsonify({'success': False, 'error': 'Invalid credentials'}), 401
+
+        public_user = {
+            'id': user['id'],
+            'email': user['email'],
+            'display_name': user.get('display_name'),
+            'created_at': user.get('created_at')
+        }
+        return jsonify({'success': True, 'user': public_user}), 200
+
+    except Exception:
+        logger.exception("Error logging in user")
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+
+def save_user_request(query, emojis, limit, analysis, user_id=None):
     conn = get_connection()
     try:
         emojis_payload = psycopg2.extras.Json(emojis) if emojis else None
@@ -351,15 +424,17 @@ def save_user_request(query, emojis, limit, analysis):
                 cur.execute(
                     """
                     INSERT INTO user_requests (
+                        user_id,
                         text_description,
                         emojis,
                         num_songs_requested,
                         gemini_analysis
                     )
-                    VALUES (%s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s)
                     RETURNING id;
                     """,
                     (
+                        user_id,
                         query,
                         emojis_payload,
                         limit,
@@ -376,7 +451,7 @@ def save_user_request(query, emojis, limit, analysis):
         conn.close()
 
 
-def save_recommended_song(request_id, position, song):
+def save_recommended_song(request_id, position, song, user_id=None):
     conn = get_connection()
     try:
         with conn:
@@ -385,6 +460,7 @@ def save_recommended_song(request_id, position, song):
                     """
                     INSERT INTO recommended_songs (
                         request_id,
+                        user_id,
                         position,
                         spotify_track_id,
                         title,
@@ -399,10 +475,11 @@ def save_recommended_song(request_id, position, song):
                         why_gemini_chose,
                         matched_criteria
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
                     """,
                     (
                         request_id,
+                        user_id,
                         position,
                         song.get("id"),
                         song.get("title"),

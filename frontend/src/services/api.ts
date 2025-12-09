@@ -14,6 +14,14 @@ export interface Track {
   duration_formatted: string | null;
 }
 
+export interface User {
+  id: number;
+  email: string;
+  display_name?: string | null;
+  created_at?: string | null;
+}
+
+
 export interface SearchResponse {
   success: boolean;
   songs: Track[];
@@ -62,7 +70,21 @@ export interface RecommendRequest {
     mood?: string | null;
     matched_criteria?: string[] | null;
   };
+  user_id?: number;
 }
+
+export interface AuthRequest {
+  email: string;
+  password: string;
+  display_name?: string;
+}
+
+export interface AuthResponse {
+  success: boolean;
+  user?: User;
+  error?: string;
+}
+
 
 export class ApiService {
   /**
@@ -181,4 +203,52 @@ export class ApiService {
       return false;
     }
   }
+
+    static async registerUser(request: AuthRequest): Promise<AuthResponse> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/users/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+      });
+
+      const data: AuthResponse = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || `HTTP error! status: ${response.status}`);
+      }
+      return data;
+    } catch (error) {
+      console.error("API register error:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  }
+
+  static async loginUser(request: AuthRequest): Promise<AuthResponse> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/users/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+      });
+
+      const data: AuthResponse = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || `HTTP error! status: ${response.status}`);
+      }
+      return data;
+    } catch (error) {
+      console.error("API login error:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  }
+
+
+  
+
 }
