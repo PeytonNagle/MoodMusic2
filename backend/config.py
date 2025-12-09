@@ -4,6 +4,10 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+# existing stuff like OPENAI_KEY, etc, probably here...
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
 class Config:
     """Configuration class for the Flask application"""
     
@@ -41,5 +45,3 @@ class Config:
             return False
         
         return True
-
-

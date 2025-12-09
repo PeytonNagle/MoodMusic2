@@ -1,10 +1,17 @@
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import logging
 import os
 from config import Config
 from services.gemini_service import GeminiService
+from db import get_connection
 from services.spotify_service import SpotifyService
+import psycopg2.extras
+import json
+
+
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -165,7 +172,7 @@ def search_music():
         })
         
     except Exception as e:
-        logger.error(f"Error processing search request: {e}")
+        logger.exception("Error processing search request")
         return jsonify({
             'success': False,
             'songs': [],
@@ -214,7 +221,7 @@ def analyze():
         return jsonify({'success': True, 'analysis': analysis, 'error': None})
 
     except Exception as e:
-        logger.error(f"Error processing analyze request: {e}")
+        logger.exception("Error processing analyze request")
         return jsonify({'success': False, 'analysis': {}, 'error': f'Internal server error: {str(e)}'}), 500
 
 @app.route('/api/recommend', methods=['POST'])
@@ -279,11 +286,21 @@ def recommend():
         logger.info("Enriching songs with Spotify data...")
         enriched_songs = spotify_service.enrich_songs(songs_from_ai)
 
+        # --- SAVE REQUEST + SONGS TO DATABASE ---
+        # (these must be INSIDE the function and INSIDE the try block)
+        request_id = save_user_request(query, emojis, limit, analysis)
+
+        for i, song in enumerate(enriched_songs):
+            save_recommended_song(request_id, i + 1, song)
+
+        logger.info(f"Saved request_id={request_id} with {len(enriched_songs)} songs")
+
         return jsonify({'success': True, 'songs': enriched_songs, 'analysis': analysis, 'error': None})
 
     except Exception as e:
-        logger.error(f"Error processing recommend request: {e}")
+        logger.exception("Error processing recommend request")
         return jsonify({'success': False, 'songs': [], 'analysis': {}, 'error': f'Internal server error: {str(e)}'}), 500
+
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
@@ -305,7 +322,7 @@ def health_check():
         })
         
     except Exception as e:
-        logger.error(f"Health check failed: {e}")
+        logger.exception("Health check failed")
         return jsonify({
             'status': 'unhealthy',
             'error': str(e)
@@ -323,9 +340,92 @@ def root():
         }
     })
 
+
+def save_user_request(query, emojis, limit, analysis):
+    conn = get_connection()
+    try:
+        emojis_payload = psycopg2.extras.Json(emojis) if emojis else None
+        analysis_payload = psycopg2.extras.Json(analysis) if analysis else None
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO user_requests (
+                        text_description,
+                        emojis,
+                        num_songs_requested,
+                        gemini_analysis
+                    )
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id;
+                    """,
+                    (
+                        query,
+                        emojis_payload,
+                        limit,
+                        analysis_payload
+                    )
+                )
+                row = cur.fetchone()
+                request_id = row['id'] if row else None
+                return request_id
+    except Exception:
+        logger.exception("Failed to save user request to the database")
+        raise
+    finally:
+        conn.close()
+
+
+def save_recommended_song(request_id, position, song):
+    conn = get_connection()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO recommended_songs (
+                        request_id,
+                        position,
+                        spotify_track_id,
+                        title,
+                        artist,
+                        album,
+                        album_art,
+                        preview_url,
+                        spotify_url,
+                        release_year,
+                        duration_ms,
+                        duration_formatted,
+                        why_gemini_chose,
+                        matched_criteria
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                    """,
+                    (
+                        request_id,
+                        position,
+                        song.get("id"),
+                        song.get("title"),
+                        song.get("artist"),
+                        song.get("album"),
+                        song.get("album_art"),
+                        song.get("preview_url"),
+                        song.get("spotify_url"),
+                        song.get("release_year"),
+                        song.get("duration_ms"),
+                        song.get("duration_formatted"),
+                        song.get("why"),
+                        psycopg2.extras.Json(song.get("matched_criteria")) 
+                            if song.get("matched_criteria") else None
+                    )
+                )
+    except Exception:
+        logger.exception("Failed to save recommended song to the database")
+        raise
+    finally:
+        conn.close()
+
+
 if __name__ == '__main__':
     logger.info("Starting Text-to-Spotify API server...")
     app.run(debug=Config.DEBUG, host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
-
-
-
