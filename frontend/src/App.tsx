@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { SearchInput } from "./components/SearchInput";
 import { ResultsGrid } from "./components/ResultsGrid";
-import { ApiService, Track, User, RecommendResponse } from "./services/api";
+import { ApiService, Track, User, RecommendResponse, HistoryItemResponse } from "./services/api";
 
 const POPULARITY_RANGES = {
   Any: null,
@@ -36,6 +36,13 @@ const mergeUniqueTracks = (target: Track[], incoming: Track[], seen: Set<string>
   return target;
 };
 
+const normalizePopularityLabel = (value: string | null | undefined): PopularityLabel => {
+  if (typeof value === "string" && value in POPULARITY_RANGES) {
+    return value as PopularityLabel;
+  }
+  return "Any";
+};
+
 interface HistoryEntry {
   id: string;
   timestamp: number;
@@ -47,8 +54,6 @@ interface HistoryEntry {
   analysis: AnalysisData;
   lastSearchLabel: string;
 }
-
-const HISTORY_STORAGE_KEY = "moodmusic:history";
 
 export default function App() {
 
@@ -71,42 +76,72 @@ export default function App() {
   const [authDisplayName, setAuthDisplayName] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
-  const [historyStore, setHistoryStore] = useState<Record<string, HistoryEntry[]>>({});
+  const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [historyMessage, setHistoryMessage] = useState<string | null>(null);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
 
   const isLoading = isAnalyzing || isRecommending;
   const historyPortalTarget = typeof document !== "undefined" ? document.body : null;
-  const currentUserHistory = user ? historyStore[user.id] ?? [] : [];
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
+  const mapHistoryItem = (item: HistoryItemResponse): HistoryEntry => {
+    const createdTimestamp = item.created_at ? Date.parse(item.created_at) : Date.now();
+    const songs: Track[] = (item.songs || []).map((song) => ({
+      id: song.spotify_track_id || null,
+      title: song.title || "Unknown title",
+      artist: song.artist || "Unknown artist",
+      album: song.album || "Unknown album",
+      album_art: song.album_art || null,
+      preview_url: song.preview_url || null,
+      spotify_url: song.spotify_url || null,
+      release_year: song.release_year || null,
+      duration_formatted: song.duration_formatted || null,
+      popularity: typeof song.popularity === "number" ? song.popularity : 0,
+    }));
+
+    const emojis = Array.isArray(item.emojis) ? item.emojis : [];
+    const label = normalizePopularityLabel(item.popularity_label);
+    const analysisData = item.analysis && typeof item.analysis === "object" ? item.analysis : null;
+
+    return {
+      id: `req-${item.request_id}`,
+      timestamp: createdTimestamp,
+      inputQuery: item.text_description || "",
+      emojis,
+      songLimit: item.num_songs_requested || 10,
+      popularityLabel: label,
+      results: songs,
+      analysis: analysisData,
+      lastSearchLabel: item.text_description || (emojis.join(" ") || "Mood search"),
+    };
+  };
+
+  const loadHistory = async (userId: number) => {
+    setIsHistoryLoading(true);
+    setHistoryMessage(null);
     try {
-      const stored = window.localStorage.getItem(HISTORY_STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed && typeof parsed === "object") {
-          setHistoryStore(parsed);
-        }
+      const response = await ApiService.getUserHistory(userId, 20);
+      if (response.success) {
+        const mapped = response.history.map((entry) => mapHistoryItem(entry));
+        setHistoryEntries(mapped);
+      } else {
+        setHistoryMessage(response.error || "Unable to load history.");
       }
     } catch (err) {
-      console.error("Failed to load history", err);
+      console.error("History load error:", err);
+      setHistoryMessage("Unable to load history. Please try again.");
+    } finally {
+      setIsHistoryLoading(false);
     }
-  }, []);
+  };
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(historyStore));
-    } catch (err) {
-      console.error("Failed to persist history", err);
-    }
-  }, [historyStore]);
-
-  useEffect(() => {
-    if (user) {
+    if (!user) {
+      setHistoryEntries([]);
       setHistoryMessage(null);
+      return;
     }
+    loadHistory(user.id);
   }, [user]);
 
   const handleAuthSubmit = async () => {
@@ -147,6 +182,9 @@ export default function App() {
       setHistoryMessage("Sign in to view your personal history.");
       setIsHistoryOpen(true);
       return;
+    }
+    if (!historyEntries.length && !isHistoryLoading) {
+      loadHistory(user.id);
     }
     setHistoryMessage(null);
     setIsHistoryOpen(true);
@@ -278,7 +316,7 @@ export default function App() {
 
       if (user?.id && finalSongs.length > 0) {
         const historyEntry: HistoryEntry = {
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          id: `temp-${Date.now()}`,
           timestamp: Date.now(),
           inputQuery: snapshot.inputQuery,
           emojis: snapshot.emojis,
@@ -288,13 +326,9 @@ export default function App() {
           analysis: finalAnalysis,
           lastSearchLabel: snapshot.lastSearchLabel,
         };
-        setHistoryStore((prev) => {
-          const existing = prev[user.id] ?? [];
-          const filtered = existing.filter((entry) => entry.lastSearchLabel !== historyEntry.lastSearchLabel);
-          return {
-            ...prev,
-            [user.id]: [historyEntry, ...filtered].slice(0, 15),
-          };
+        setHistoryEntries((prev) => {
+          const filtered = prev.filter((entry) => entry.lastSearchLabel !== historyEntry.lastSearchLabel);
+          return [historyEntry, ...filtered].slice(0, 20);
         });
       }
     } catch (err: any) {
@@ -414,7 +448,7 @@ export default function App() {
           popularityLabel={popularityLabel}
           onChangePopularity={setPopularityLabel}
           onOpenHistory={handleOpenHistory}
-          historyCount={currentUserHistory.length}
+          historyCount={user ? historyEntries.length : 0}
         />
 
         {(isAnalyzing || analysis) && (
@@ -544,13 +578,18 @@ export default function App() {
                 <div className="px-6 py-10 text-center text-gray-300">
                   {historyMessage || "Please sign in to view your saved history."}
                 </div>
-              ) : currentUserHistory.length === 0 ? (
+              ) : isHistoryLoading ? (
+                <div className="px-6 py-10 text-center text-gray-300">Loading history…</div>
+              ) : historyEntries.length === 0 ? (
                 <div className="px-6 py-10 text-center text-gray-400">
                   No past requests yet. Run a search to start building history.
                 </div>
               ) : (
                 <div className="max-h-[60vh] overflow-y-auto space-y-4 px-5 py-4">
-                  {currentUserHistory.map((entry) => (
+                  {historyMessage && (
+                    <div className="text-center text-xs text-red-300 mb-2">{historyMessage}</div>
+                  )}
+                  {historyEntries.map((entry) => (
                     <button
                       key={entry.id}
                       type="button"

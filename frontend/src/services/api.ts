@@ -52,6 +52,43 @@ export interface RecommendResponse {
   error?: string | null;
 }
 
+export interface HistorySongResponse {
+  position: number;
+  spotify_track_id: string | null;
+  title: string;
+  artist: string;
+  album: string | null;
+  album_art: string | null;
+  preview_url: string | null;
+  spotify_url: string | null;
+  release_year: string | null;
+  duration_ms: number | null;
+  duration_formatted: string | null;
+  why_gemini_chose?: string | null;
+  matched_criteria?: string[] | null;
+  popularity?: number | null;
+}
+
+export interface HistoryItemResponse {
+  request_id: number;
+  text_description: string | null;
+  emojis: string[] | null;
+  num_songs_requested: number;
+  analysis?: {
+    mood?: string | null;
+    matched_criteria?: string[] | null;
+  } | null;
+  songs: HistorySongResponse[];
+  created_at?: string | null;
+  popularity_label?: string | null;
+}
+
+export interface UserHistoryResponse {
+  success: boolean;
+  history: HistoryItemResponse[];
+  error?: string;
+}
+
 export interface SearchRequest {
   query: string;
   limit?: number;
@@ -170,6 +207,33 @@ export class ApiService {
         success: false,
         songs: [],
         error: error instanceof Error ? error.message : 'Unknown error occurred',
+      };
+    }
+  }
+
+  /**
+   * Fetch saved history for a user
+   */
+  static async getUserHistory(userId: number, limit = 20): Promise<UserHistoryResponse> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/history/${userId}?limit=${limit}`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        return {
+          success: false,
+          history: [],
+          error: data?.error || `HTTP error! status: ${response.status}`,
+        };
+      }
+
+      return data as UserHistoryResponse;
+    } catch (error) {
+      console.error("API history error:", error);
+      return {
+        success: false,
+        history: [],
+        error: error instanceof Error ? error.message : "Unknown error occurred",
       };
     }
   }
