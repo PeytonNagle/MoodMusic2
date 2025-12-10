@@ -187,7 +187,7 @@ export default function App() {
               Mood to Music
             </h1>
             <p className="text-gray-400">
-              Describe your mood; mention genres or artists if you want
+              Describe your mood; mention genres or artists if you want - mobile test
             </p>
           </div>
 
