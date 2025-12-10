@@ -130,8 +130,13 @@
     -webkit-tap-highlight-color: transparent;
   }
 
-  body {
+body {
     line-height: inherit;
+    overflow-x: hidden;
+  }
+
+  #root {
+    overflow-x: hidden;
   }
 
   hr {
@@ -1807,6 +1812,5 @@ html {
   border-color: rgba(255, 255, 255, 0.35);
   box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.18);
 }
-
 
 

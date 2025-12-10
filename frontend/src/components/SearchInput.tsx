@@ -43,33 +43,33 @@ export function SearchInput({
   const disableSearch = isLoading || (!value.trim() && selectedEmojis.length === 0);
 
   return (
-    <div className="w-full max-w-4xl mx-auto">
-      <div className="relative backdrop-blur-lg bg-white/5 border border-white/10 rounded-2xl p-6 shadow-2xl">
-        <div className="flex items-start gap-4">
-          <div className="mt-3">
+    <div className="w-full max-w-full sm:max-w-4xl mx-auto px-2 sm:px-0">
+      <div className="relative backdrop-blur-lg bg-white/5 border border-white/10 rounded-2xl p-4 sm:p-6 shadow-2xl">
+        <div className="grid grid-cols-[auto,1fr] gap-3 sm:gap-4 items-start w-full">
+          <div className="mt-1 sm:mt-3">
             <Sparkles className="w-6 h-6 text-purple-400" />
           </div>
-          <div className="flex-1">
+          <div className="w-full">
             <Textarea
               value={value}
               onChange={(e) => onChange(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Describe your mood first, then optionally genres or artists (add emojis if you want)"
-              className="min-h-[100px] bg-transparent border-none resize-none text-white placeholder:text-gray-500 focus-visible:ring-0 focus-visible:ring-offset-0 p-0"
+              className="min-h-[100px] bg-transparent border-none resize-none text-white placeholder:text-gray-500 focus-visible:ring-0 focus-visible:ring-offset-0 p-0 text-left"
             />
             <div className="mt-4">
               <EmojiPicker value={selectedEmojis} onChange={onChangeEmojis} />
             </div>
-            <div className="mt-4 flex flex-wrap items-center gap-4">
-              <div className="flex items-center gap-3">
-                <label htmlFor="song-limit" className="text-sm text-gray-400 whitespace-nowrap">
+            <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 w-full sm:w-auto">
+                <label htmlFor="song-limit" className="text-sm text-gray-400">
                   Number of songs:
                 </label>
                 <select
                   id="song-limit"
                   value={songLimit}
                   onChange={(e) => onChangeSongLimit(parseInt(e.target.value, 10))}
-                  className="w-28 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 select-glass"
+                  className="w-full sm:w-[7rem] px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 select-glass"
                   disabled={isLoading}
                 >
                   {[10, 15, 20, 25, 30, 40, 50].map((val) => (
@@ -79,15 +79,15 @@ export function SearchInput({
                   ))}
                 </select>
               </div>
-              <div className="flex items-center gap-3">
-                <label htmlFor="popularity" className="text-sm text-gray-400 whitespace-nowrap">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 w-full sm:w-auto">
+                <label htmlFor="popularity" className="text-sm text-gray-400">
                   Popularity:
                 </label>
                 <select
                   id="popularity"
                   value={popularityLabel}
                   onChange={(e) => onChangePopularity(e.target.value)}
-                  className="w-52 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 select-glass"
+                  className="w-full sm:w-52 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 select-glass"
                   disabled={isLoading}
                 >
                   {Object.keys(popularityRanges).map((label) => (
@@ -105,15 +105,15 @@ export function SearchInput({
             </div>
           </div>
         </div>
-        <div className="flex justify-between items-center mt-4 pt-4 border-t border-white/10">
-          <div className="flex items-center gap-2 text-gray-400">
+        <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mt-4 pt-4 border-t border-white/10">
+          <div className="flex items-center gap-2 text-gray-400 text-sm text-center sm:text-left justify-center sm:justify-start">
             <Search className="w-4 h-4" />
             <span className="text-sm">Mood-first music discovery (genres/artists respected)</span>
           </div>
           <Button
             onClick={onSearch}
             disabled={disableSearch}
-            className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white px-6"
+            className="w-40 self-center sm:self-auto bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white px-4"
           >
             {isLoading ? (
               <>
