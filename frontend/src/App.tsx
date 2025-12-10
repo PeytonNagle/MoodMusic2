@@ -1,11 +1,25 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { SearchInput } from "./components/SearchInput";
 import { ResultsGrid } from "./components/ResultsGrid";
 import { ApiService, Track } from "./services/api";
 
 export default function App() {
+  const POPULARITY_RANGES = {
+    Any: null,
+    "Global / Superstar": [90, 100],
+    "Hot / Established": [75, 89],
+    "Buzzing / Moderate": [50, 74],
+    Growing: [25, 49],
+    Rising: [15, 24],
+    "Under the Radar": [0, 14],
+  } as const;
+
+  type PopularityLabel = keyof typeof POPULARITY_RANGES;
+
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedEmojis, setSelectedEmojis] = useState<string[]>([]);
+  const [songLimit, setSongLimit] = useState<number>(10);
+  const [popularityLabel, setPopularityLabel] = useState<PopularityLabel>("Any");
   const [lastSearch, setLastSearch] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isRecommending, setIsRecommending] = useState(false);
@@ -46,11 +60,15 @@ export default function App() {
       setAnalysis(analysisResponse.analysis || {});
 
       setIsRecommending(true);
+      const selectedRange = POPULARITY_RANGES[popularityLabel];
+      const popularityRange = selectedRange ? [selectedRange[0], selectedRange[1]] as [number, number] : undefined;
       const recommendResponse = await ApiService.recommendMusic({
         query: searchQuery,
-        limit: 10,
+        limit: songLimit,
         emojis: hasEmojis ? selectedEmojis : undefined,
         analysis: analysisResponse.analysis,
+        popularity_label: popularityLabel === "Any" ? undefined : popularityLabel,
+        popularity_range: popularityRange,
       });
 
       setRawResponse({ analysis: analysisResponse, recommend: recommendResponse });
@@ -99,9 +117,14 @@ export default function App() {
           onSearch={handleSearch}
           isLoading={isLoading}
           loadingLabel={isAnalyzing ? "Analyzing..." : isRecommending ? "Finding songs..." : undefined}
-          selectedEmojis={selectedEmojis}
-          onChangeEmojis={setSelectedEmojis}
-        />
+        selectedEmojis={selectedEmojis}
+        onChangeEmojis={setSelectedEmojis}
+        songLimit={songLimit}
+        onChangeSongLimit={setSongLimit}
+        popularityRanges={POPULARITY_RANGES}
+        popularityLabel={popularityLabel}
+        onChangePopularity={setPopularityLabel}
+      />
 
         {/* Analysis status */}
         {(isAnalyzing || analysis) && (

@@ -82,7 +82,7 @@ class GeminiService:
             return {"analysis": analysis}
 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON from Gemini analysis: {e}")
+            logger.error(f"Failed to parse JSON from Gemini analysis: {e} | raw={content!r}")
             raise ValueError("Invalid JSON response from Gemini")
         except Exception as e:
             logger.error(f"Error getting mood analysis from Gemini: {e}")
@@ -95,6 +95,9 @@ class GeminiService:
         num_songs: int = 10,
         emojis: Optional[List[str]] = None,
         model: Optional[str] = None,
+        min_popularity: Optional[int] = None,
+        popularity_label: Optional[str] = None,
+        token_cap: int = 12000,
     ) -> Dict[str, Any]:
         """
         Get song suggestions based on text description and prior analysis.
@@ -107,14 +110,20 @@ class GeminiService:
                 if emojis else "No emoji tags provided by the user."
             )
             analysis_json = json.dumps(analysis or {}, ensure_ascii=False)
+            if popularity_label or min_popularity is not None:
+                target_low = min_popularity if min_popularity is not None else 0
+                target_high = min(100, (target_low or 0) + 20)
+                popularity_hint = f" Aim for the requested popularity band: '{popularity_label}' (around Spotify {target_low}-{target_high}). Do NOT over-index on chart-toppers if the band is lower."
+            else:
+                popularity_hint = " Popularity is open; you may choose any songs."
 
             prompt = f"""
             User request: "{text_description}"
             {emoji_context}
             Prior analysis JSON: {analysis_json}
 
-            Using that analysis, suggest {num_songs} real, popular songs available on Spotify.
-            Prioritize the mood/criteria first, then any explicit genres or artists.
+            Using that analysis, suggest exactly {num_songs} songs available on Spotify.
+            Prioritize the mood/criteria first, then any explicit genres or artists.{popularity_hint}
 
             Return ONLY valid JSON:
             {{
@@ -124,8 +133,18 @@ class GeminiService:
               ]
             }}
 
-            Rules: keep 'why' brief, keep matched_criteria as short tags, ensure songs are real and likely on Spotify, no extra text.
+            Rules: keep 'why' brief, keep matched_criteria as short tags, no extra text.
             """
+
+            # Scale token budget to requested song count; lean higher to reduce truncation
+            base_tokens = 2000
+            per_song_tokens = 160
+            initial_tokens = min(base_tokens + num_songs * per_song_tokens, token_cap)
+            current_tokens = initial_tokens
+
+            # Slightly higher temperature for lower popularity bands to encourage variety
+            low_pop_labels = {"Growing", "Rising", "Under the Radar"}
+            temperature = 0.9 if popularity_label in low_pop_labels else 0.8
 
             def _run_recommendation(max_tokens: int):
                 return self.client.chat.completions.create(
@@ -137,26 +156,24 @@ class GeminiService:
                         },
                         {"role": "user", "content": prompt},
                     ],
-                    temperature=0.8,
+                    temperature=temperature,
                     max_tokens=max_tokens,
                     response_format={"type": "json_object"},
                 )
 
-            response = _run_recommendation(3000)
+            # Single request; salvage and return whatever is valid (trimmed to num_songs)
+            response = _run_recommendation(current_tokens)
             choice = response.choices[0]
             content = choice.message.content
-
-            # Retry once if we hit length or got no content
-            if content is None or choice.finish_reason == "length":
-                logger.info("Gemini recommendation retry triggered (content missing or length finish).")
-                response = _run_recommendation(4000)
-                choice = response.choices[0]
-                content = choice.message.content
-
             if content is None:
-                raise ValueError("There was an error processing the Gemini request, try a different request.")
+                raise ValueError("Empty response from Gemini")
 
-            parsed = self._extract_json(content)
+            try:
+                parsed = self._extract_json_with_salvage(content)
+            except Exception:
+                # Last-ditch salvage to last complete song
+                trimmed = self._salvage_to_last_complete_song(content or "")
+                parsed = self._extract_json(trimmed)
 
             songs: List[Dict[str, Any]] = []
             if isinstance(parsed, dict) and 'songs' in parsed:
@@ -169,16 +186,26 @@ class GeminiService:
             if not isinstance(songs, list):
                 raise ValueError("'songs' must be a list")
 
+            valid_songs: List[Dict[str, Any]] = []
+            seen_keys = set()
             for song in songs:
                 if not isinstance(song, dict) or 'title' not in song or 'artist' not in song:
-                    raise ValueError("Invalid song structure")
+                    continue
+                key = f"{str(song.get('title', '')).strip().lower()}|{str(song.get('artist', '')).strip().lower()}"
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                valid_songs.append(song)
+                if len(valid_songs) >= num_songs:
+                    break
 
-            logger.info(f"Successfully got {len(songs)} song suggestions from Gemini (emojis: {emojis or []})")
-            return {'songs': songs}
+            if not valid_songs:
+                logger.warning("No valid songs after parsing/salvage; returning empty list.")
+                return {'songs': []}
 
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON from Gemini response: {e}")
-            raise ValueError("Invalid JSON response from Gemini")
+            logger.info(f"Successfully got {len(valid_songs)} song suggestions from Gemini (emojis: {emojis or []})")
+            return {'songs': valid_songs}
+
         except Exception as e:
             logger.error(f"Error getting song suggestions from Gemini: {e}")
             raise Exception(f"Gemini API error: {str(e)}")
@@ -217,6 +244,17 @@ class GeminiService:
             logger.error(f"Gemini connection test failed: {e}")
             return False
 
+    def _extract_json_with_salvage(self, content: str) -> Any:
+        """Parse JSON and attempt a light repair on failure."""
+        try:
+            return self._extract_json(content)
+        except json.JSONDecodeError as e:
+            logger.warning(f"JSON parse failed; trimming to last complete song. error={e}")
+            repaired = self._salvage_to_last_complete_song(content)
+            parsed = self._extract_json(repaired)
+            logger.info("JSON salvage succeeded using trimmed payload.")
+            return parsed
+
     def _extract_json(self, content: str) -> Any:
         """Normalize and parse JSON content from Gemini responses."""
         content = content.strip()
@@ -225,3 +263,28 @@ class GeminiService:
         elif content.startswith('```'):
             content = content[3:-3]
         return json.loads(content)
+
+    def _salvage_to_last_complete_song(self, content: str) -> str:
+        """
+        Trim the payload back to the last complete song object and close the JSON.
+        """
+        text = content.strip()
+        if text.startswith('```json'):
+            text = text[7:-3]
+        elif text.startswith('```'):
+            text = text[3:-3]
+
+        last_brace = text.rfind('}')
+        if last_brace == -1:
+            return text
+
+        text = text[: last_brace + 1]
+        text = text.rstrip(', \n\r\t')
+
+        # Drop a trailing comma before closing the array/object
+        if text.endswith(','):
+            text = text.rstrip(', \n\r\t')
+
+        if '"songs"' in text and '[' in text and not text.strip().endswith((']', ']}', '}}')):
+            text += "\n  ]\n}"
+        return text
