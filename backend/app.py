@@ -38,9 +38,15 @@ def _save_worker():
             SAVE_QUEUE.task_done()
             break
         try:
-            request_id = save_user_request(job["query"], job["emojis"], job["limit"], job["analysis"])
+            request_id = save_user_request(
+                job["query"],
+                job.get("emojis"),
+                job["limit"],
+                job["analysis"],
+                job.get("user_id"),
+            )
             for i, song in enumerate(job["songs"]):
-                save_recommended_song(request_id, i + 1, song)
+                save_recommended_song(request_id, i + 1, song, job.get("user_id"))
             logger.info(f"Background save complete (request_id={request_id}, songs={len(job['songs'])})")
         except Exception:
             logger.exception("Background save failed")
@@ -514,21 +520,6 @@ def recommend():
                 popularity_label=popularity_label,
             )
             songs_from_ai = recommendations.get('songs', []) if isinstance(recommendations, dict) else recommendations
-
-        if not songs_from_ai:
-            return jsonify({'success': False, 'songs': [], 'analysis': analysis, 'error': 'No songs found for the given query'}), 404
-
-        logger.info("Enriching songs with Spotify data...")
-        enriched_songs = spotify_service.enrich_songs(songs_from_ai)
-
-        # --- SAVE REQUEST + SONGS TO DATABASE ---
-        # (these must be INSIDE the function and INSIDE the try block)
-        request_id = save_user_request(query, emojis, limit, analysis, user_id)
-
-        for i, song in enumerate(enriched_songs):
-            save_recommended_song(request_id, i + 1, song, user_id)
-
-        logger.info(f"Saved request_id={request_id} with {len(enriched_songs)} songs")
             if not songs_from_ai:
                 return []
 
@@ -594,6 +585,7 @@ def recommend():
                 "limit": limit,
                 "analysis": analysis,
                 "songs": enriched_songs,
+                "user_id": user_id,
             })
         except queue.Full:
             logger.warning("Save queue is full; skipping async DB save for this request.")

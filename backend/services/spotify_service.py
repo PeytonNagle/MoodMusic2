@@ -96,8 +96,7 @@ class SpotifyService:
                         'duration_ms': None,
                         'duration_formatted': None,
                         'why': song.get('why'),
-                        'matched_criteria': song.get('matched_criteria')
-                        'duration_formatted': None,
+                        'matched_criteria': song.get('matched_criteria'),
                         'popularity': 0
                     })
             except Exception as e:
@@ -119,8 +118,7 @@ class SpotifyService:
                     'duration_ms': None,
                     'duration_formatted': None,
                     'why': song.get('why'),
-                    'matched_criteria': song.get('matched_criteria')
-                    'duration_formatted': None,
+                    'matched_criteria': song.get('matched_criteria'),
                     'popularity': 0
                 })
         
