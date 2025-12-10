@@ -46,6 +46,7 @@ const MORE_EMOJIS = [
   "🥤",
 ];
 const MAX_EMOJIS = 12;
+const ALL_EMOJIS = Array.from(new Set([...BASE_EMOJIS, ...MORE_EMOJIS]));
 
 export function EmojiPicker({ value, onChange }: EmojiPickerProps) {
   const selectedSet = useMemo(() => new Set(value), [value]);
@@ -110,9 +111,9 @@ export function EmojiPicker({ value, onChange }: EmojiPickerProps) {
   };
 
   return (
-    <div className="flex flex-col gap-2 relative" ref={containerRef}>
-      <div className="flex items-center justify-between text-sm text-gray-400">
-        <span>Tag the vibe with emojis (optional)</span>
+    <div className="flex flex-col gap-3 relative w-full" ref={containerRef}>
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between text-sm text-gray-400">
+        <span className="leading-snug">Tag the vibe with emojis (optional)</span>
         <button
           type="button"
           onClick={clearEmojis}
@@ -122,25 +123,43 @@ export function EmojiPicker({ value, onChange }: EmojiPickerProps) {
           Clear
         </button>
       </div>
-      <div className="flex flex-wrap gap-2">
-        {BASE_EMOJIS.map((emoji) => renderEmojiButton(emoji))}
+      <div
+        className="min-h-[40px] flex flex-wrap gap-1.5 rounded-xl bg-white/5 border border-white/10 px-2 py-2"
+        style={{ columnGap: "0.4rem", rowGap: "0.4rem", maxWidth: "100%" }}
+      >
+        {value.length === 0 ? (
+          <span className="text-xs text-gray-500">No emojis selected</span>
+        ) : (
+          value.map((emoji) => (
+            <button
+              key={emoji}
+              type="button"
+              onClick={() => toggleEmoji(emoji)}
+              className="px-1.5 py-0.5 rounded-full bg-white text-xs text-black shadow flex items-center justify-center"
+            >
+              {emoji}
+            </button>
+          ))
+        )}
+      </div>
+      <div className="flex">
         <button
           type="button"
           aria-haspopup="dialog"
           aria-expanded={isExpanded}
           onClick={() => setIsExpanded((prev) => !prev)}
-          className="w-10 h-10 rounded-xl border border-white/10 bg-white/5 text-gray-200 hover:border-purple-400/40 hover:text-white transition-all focus:outline-none focus:ring-2 focus:ring-purple-400 focus:ring-offset-2 focus:ring-offset-transparent"
+          className="w-full sm:w-auto rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm text-gray-200 hover:text-white hover:border-purple-300 transition-all focus:outline-none focus:ring-2 focus:ring-purple-400 focus:ring-offset-2 focus:ring-offset-transparent"
         >
-          +
+          {isExpanded ? "Hide emoji palette" : "Choose emojis"}
         </button>
       </div>
       {isExpanded && (
         <div
           ref={popoverRef}
-          className="absolute z-50 mt-2 right-0 top-full rounded-2xl shadow-2xl overflow-hidden"
+          className="absolute z-50 mt-2 left-0 sm:right-0 top-full rounded-2xl shadow-2xl overflow-hidden w-full sm:w-auto"
           style={{
             backgroundColor: "#050914",
-            width: "320px",
+            width: "min(320px, calc(100vw - 2rem))",
             boxShadow: "0 22px 70px rgba(0,0,0,0.6)",
             opacity: 1,
             backdropFilter: "none",
@@ -171,7 +190,7 @@ export function EmojiPicker({ value, onChange }: EmojiPickerProps) {
               alignItems: "center",
             }}
           >
-            {MORE_EMOJIS.filter((e) => !BASE_EMOJIS.includes(e)).map((emoji) => renderEmojiButton(emoji))}
+            {ALL_EMOJIS.map((emoji) => renderEmojiButton(emoji))}
           </div>
         </div>
       )}
