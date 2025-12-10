@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Search, Sparkles } from "lucide-react";
+import { Clock3, Search, Sparkles } from "lucide-react";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { EmojiPicker } from "./EmojiPicker";
@@ -17,6 +17,8 @@ interface SearchInputProps {
   popularityLabel: string;
   popularityRanges: Record<string, [number, number] | null>;
   onChangePopularity: (label: string) => void;
+  onOpenHistory: () => void;
+  historyCount: number;
 }
 
 export function SearchInput({
@@ -32,6 +34,8 @@ export function SearchInput({
   popularityLabel,
   popularityRanges,
   onChangePopularity,
+  onOpenHistory,
+  historyCount,
 }: SearchInputProps) {
   const SONG_LIMIT_OPTIONS = [5, 10, 15, 20, 25];
   const [isSongLimitMenuOpen, setIsSongLimitMenuOpen] = useState(false);
@@ -68,6 +72,16 @@ export function SearchInput({
   return (
     <div className="w-full max-w-full sm:max-w-4xl mx-auto px-2 sm:px-0">
       <div className="relative backdrop-blur-lg bg-white/5 border border-white/10 rounded-2xl p-4 sm:p-6 shadow-2xl">
+        <div className="flex justify-end mb-2">
+          <button
+            type="button"
+            onClick={onOpenHistory}
+            className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium uppercase tracking-wide text-gray-200 transition hover:border-purple-400/60 hover:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/40"
+          >
+            <Clock3 className="w-3.5 h-3.5 text-purple-300" />
+            <span>History{historyCount > 0 ? ` (${historyCount})` : ""}</span>
+          </button>
+        </div>
         <div className="grid grid-cols-[auto,1fr] gap-3 sm:gap-4 items-start w-full">
           <div className="mt-1 sm:mt-3">
             <Sparkles className="w-6 h-6 text-purple-400" />

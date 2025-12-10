@@ -1,20 +1,56 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { SearchInput } from "./components/SearchInput";
 import { ResultsGrid } from "./components/ResultsGrid";
-import { ApiService, Track, User } from "./services/api";
+import { ApiService, Track, User, RecommendResponse } from "./services/api";
+
+const POPULARITY_RANGES = {
+  Any: null,
+  "Global / Superstar": [90, 100],
+  "Hot / Established": [75, 89],
+  "Buzzing / Moderate": [50, 74],
+  Growing: [25, 49],
+  Rising: [15, 24],
+  "Under the Radar": [0, 14],
+} as const;
+
+type PopularityLabel = keyof typeof POPULARITY_RANGES;
+type AnalysisData = { mood?: string | null; matched_criteria?: string[] | null } | null;
+
+const buildTrackKey = (track: Track): string | null => {
+  if (!track) return null;
+  if (track.id) return `id:${track.id}`;
+  const title = (track.title || "").trim().toLowerCase();
+  const artist = (track.artist || "").trim().toLowerCase();
+  if (!title && !artist) return null;
+  return `${title}|${artist}`;
+};
+
+const mergeUniqueTracks = (target: Track[], incoming: Track[], seen: Set<string>): Track[] => {
+  for (const track of incoming || []) {
+    const key = buildTrackKey(track);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    target.push(track);
+  }
+  return target;
+};
+
+interface HistoryEntry {
+  id: string;
+  timestamp: number;
+  inputQuery: string;
+  emojis: string[];
+  songLimit: number;
+  popularityLabel: PopularityLabel;
+  results: Track[];
+  analysis: AnalysisData;
+  lastSearchLabel: string;
+}
+
+const HISTORY_STORAGE_KEY = "moodmusic:history";
 
 export default function App() {
-  const POPULARITY_RANGES = {
-    Any: null,
-    "Global / Superstar": [90, 100],
-    "Hot / Established": [75, 89],
-    "Buzzing / Moderate": [50, 74],
-    Growing: [25, 49],
-    Rising: [15, 24],
-    "Under the Radar": [0, 14],
-  } as const;
-
-  type PopularityLabel = keyof typeof POPULARITY_RANGES;
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedEmojis, setSelectedEmojis] = useState<string[]>([]);
@@ -26,7 +62,7 @@ export default function App() {
   const [results, setResults] = useState<Track[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [rawResponse, setRawResponse] = useState<any | null>(null);
-  const [analysis, setAnalysis] = useState<{ mood?: string | null; matched_criteria?: string[] | null } | null>(null);
+  const [analysis, setAnalysis] = useState<AnalysisData>(null);
 
   const [user, setUser] = useState<User | null>(null);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
@@ -35,8 +71,43 @@ export default function App() {
   const [authDisplayName, setAuthDisplayName] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
+  const [historyStore, setHistoryStore] = useState<Record<string, HistoryEntry[]>>({});
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [historyMessage, setHistoryMessage] = useState<string | null>(null);
 
   const isLoading = isAnalyzing || isRecommending;
+  const historyPortalTarget = typeof document !== "undefined" ? document.body : null;
+  const currentUserHistory = user ? historyStore[user.id] ?? [] : [];
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const stored = window.localStorage.getItem(HISTORY_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed === "object") {
+          setHistoryStore(parsed);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load history", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(historyStore));
+    } catch (err) {
+      console.error("Failed to persist history", err);
+    }
+  }, [historyStore]);
+
+  useEffect(() => {
+    if (user) {
+      setHistoryMessage(null);
+    }
+  }, [user]);
 
   const handleAuthSubmit = async () => {
     setAuthError(null);
@@ -71,10 +142,49 @@ export default function App() {
     }
   };
 
+  const handleOpenHistory = () => {
+    if (!user) {
+      setHistoryMessage("Sign in to view your personal history.");
+      setIsHistoryOpen(true);
+      return;
+    }
+    setHistoryMessage(null);
+    setIsHistoryOpen(true);
+  };
+
+  const handleHistorySelect = (entry: HistoryEntry) => {
+    if (!user) {
+      setHistoryMessage("Please sign in to load saved history.");
+      setIsHistoryOpen(true);
+      return;
+    }
+    setSearchQuery(entry.inputQuery);
+    setSelectedEmojis(entry.emojis);
+    setSongLimit(entry.songLimit);
+    setPopularityLabel(entry.popularityLabel);
+    setResults(entry.results);
+    setAnalysis(entry.analysis);
+    setLastSearch(entry.lastSearchLabel);
+    setError(null);
+    setRawResponse(null);
+    setIsAnalyzing(false);
+    setIsRecommending(false);
+    setIsHistoryOpen(false);
+  };
+
   const handleSearch = async () => {
-    const hasQuery = searchQuery.trim().length > 0;
+    const trimmedQuery = searchQuery.trim();
+    const hasQuery = trimmedQuery.length > 0;
     const hasEmojis = selectedEmojis.length > 0;
     if (!hasQuery && !hasEmojis) return;
+
+    const snapshot = {
+      inputQuery: searchQuery,
+      emojis: [...selectedEmojis],
+      songLimit,
+      popularityLabel,
+      lastSearchLabel: (hasQuery ? trimmedQuery : selectedEmojis.join(" ")) || "Mood search",
+    };
 
     setIsAnalyzing(true);
     setIsRecommending(false);
@@ -82,7 +192,7 @@ export default function App() {
     setResults([]);
     setAnalysis(null);
     setRawResponse(null);
-    setLastSearch(hasQuery ? searchQuery : selectedEmojis.join(" "));
+    setLastSearch(snapshot.lastSearchLabel);
 
     try {
       const analysisResponse = await ApiService.analyzeMood({
@@ -103,24 +213,89 @@ export default function App() {
       setIsRecommending(true);
       const selectedRange = POPULARITY_RANGES[popularityLabel];
       const popularityRange = selectedRange ? [selectedRange[0], selectedRange[1]] as [number, number] : undefined;
-      const recommendResponse = await ApiService.recommendMusic({
+      const recommendBasePayload = {
         query: searchQuery,
-        limit: songLimit,
         emojis: hasEmojis ? selectedEmojis : undefined,
         analysis: analysisResponse.analysis,
         popularity_label: popularityLabel === "Any" ? undefined : popularityLabel,
         popularity_range: popularityRange,
         user_id: user?.id,
-      });
+      };
 
-      setRawResponse({ analysis: analysisResponse, recommend: recommendResponse });
+      const aggregatedSongs: Track[] = [];
+      const seenTrackKeys = new Set<string>();
+      const clientMaxAttempts = 3;
+      let clientAttempt = 0;
+      let latestAnalysisData = analysisResponse.analysis || {};
+      let lastRecommendResponse: RecommendResponse | null = null;
 
-      if (recommendResponse.success) {
-        setResults(recommendResponse.songs);
-        setAnalysis(recommendResponse.analysis || analysisResponse.analysis || {});
-      } else {
-        setError(recommendResponse.error || "Failed to get recommendations");
+      while (clientAttempt < clientMaxAttempts && aggregatedSongs.length < songLimit) {
+        clientAttempt += 1;
+        const remainingNeeded = songLimit - aggregatedSongs.length;
+        const requestLimit = Math.max(remainingNeeded, 10);
+        const recommendResponse = await ApiService.recommendMusic({
+            ...recommendBasePayload,
+            limit: requestLimit,
+        });
+        lastRecommendResponse = recommendResponse;
+
+        if (!recommendResponse.success) {
+          setRawResponse({ analysis: analysisResponse, recommend: recommendResponse });
+          setError(recommendResponse.error || "Failed to get recommendations");
+          setResults([]);
+          return;
+        }
+
+        latestAnalysisData = recommendResponse.analysis || latestAnalysisData;
+        mergeUniqueTracks(aggregatedSongs, recommendResponse.songs, seenTrackKeys);
+        if (aggregatedSongs.length >= songLimit) {
+          break;
+        }
+      }
+
+      setRawResponse({ analysis: analysisResponse, recommend: lastRecommendResponse });
+
+      if (!lastRecommendResponse || !lastRecommendResponse.success) {
+        setError("Failed to get recommendations");
         setResults([]);
+        return;
+      }
+
+      const finalSongs = aggregatedSongs.slice(0, songLimit);
+
+      if (finalSongs.length === 0) {
+        setError("No songs found for this request. Try adjusting your mood or filters.");
+        setResults([]);
+        return;
+      }
+
+      setResults(finalSongs);
+      const finalAnalysis = latestAnalysisData || analysisResponse.analysis || {};
+      setAnalysis(finalAnalysis);
+      if (finalSongs.length < songLimit) {
+        setError(`Only found ${finalSongs.length} songs for this request. Try broadening your filters.`);
+      }
+
+      if (user?.id && finalSongs.length > 0) {
+        const historyEntry: HistoryEntry = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          timestamp: Date.now(),
+          inputQuery: snapshot.inputQuery,
+          emojis: snapshot.emojis,
+          songLimit: snapshot.songLimit,
+          popularityLabel: snapshot.popularityLabel,
+          results: finalSongs,
+          analysis: finalAnalysis,
+          lastSearchLabel: snapshot.lastSearchLabel,
+        };
+        setHistoryStore((prev) => {
+          const existing = prev[user.id] ?? [];
+          const filtered = existing.filter((entry) => entry.lastSearchLabel !== historyEntry.lastSearchLabel);
+          return {
+            ...prev,
+            [user.id]: [historyEntry, ...filtered].slice(0, 15),
+          };
+        });
       }
     } catch (err: any) {
       console.error("Search error:", err);
@@ -231,14 +406,16 @@ export default function App() {
           onSearch={handleSearch}
           isLoading={isLoading}
           loadingLabel={isAnalyzing ? "Analyzing..." : isRecommending ? "Finding songs..." : undefined}
-        selectedEmojis={selectedEmojis}
-        onChangeEmojis={setSelectedEmojis}
-        songLimit={songLimit}
-        onChangeSongLimit={setSongLimit}
-        popularityRanges={POPULARITY_RANGES}
-        popularityLabel={popularityLabel}
-        onChangePopularity={setPopularityLabel}
-      />
+          selectedEmojis={selectedEmojis}
+          onChangeEmojis={setSelectedEmojis}
+          songLimit={songLimit}
+          onChangeSongLimit={setSongLimit}
+          popularityRanges={POPULARITY_RANGES}
+          popularityLabel={popularityLabel}
+          onChangePopularity={setPopularityLabel}
+          onOpenHistory={handleOpenHistory}
+          historyCount={currentUserHistory.length}
+        />
 
         {(isAnalyzing || analysis) && (
           <div className="w-full max-w-4xl mx-auto mt-6">
@@ -324,6 +501,86 @@ export default function App() {
           </div>
         )}
       </div>
+      {historyPortalTarget &&
+        isHistoryOpen &&
+        createPortal(
+          <div
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 9999,
+              backgroundColor: "rgba(15, 15, 30, 0.85)",
+              backdropFilter: "blur(6px)",
+              WebkitBackdropFilter: "blur(6px)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "1.5rem",
+            }}
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                setIsHistoryOpen(false);
+              }
+            }}
+          >
+            <div className="w-full max-w-2xl rounded-2xl border border-white/20 bg-[#151529] shadow-2xl shadow-purple-900/40">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-gray-400">Your saved moods</p>
+                  <h3 className="text-xl text-white font-semibold">History</h3>
+                </div>
+                <button
+                  onClick={() => setIsHistoryOpen(false)}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/30 text-white hover:border-white hover:bg-white/10 transition"
+                  aria-label="Close history"
+                >
+                  <span className="text-lg leading-none text-white">&times;</span>
+                </button>
+              </div>
+              {!user ? (
+                <div className="px-6 py-10 text-center text-gray-300">
+                  {historyMessage || "Please sign in to view your saved history."}
+                </div>
+              ) : currentUserHistory.length === 0 ? (
+                <div className="px-6 py-10 text-center text-gray-400">
+                  No past requests yet. Run a search to start building history.
+                </div>
+              ) : (
+                <div className="max-h-[60vh] overflow-y-auto space-y-4 px-5 py-4">
+                  {currentUserHistory.map((entry) => (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      onClick={() => handleHistorySelect(entry)}
+                      className="w-full text-left rounded-2xl border border-white/10 bg-white/5 px-5 py-4 hover:border-purple-400/40 hover:bg-white/10 transition flex items-center justify-between gap-4 shadow-inner shadow-black/20"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white font-semibold break-words">{entry.lastSearchLabel}</p>
+                        <p className="text-xs text-gray-400">{new Date(entry.timestamp).toLocaleString()}</p>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-400">
+                          {entry.emojis.length > 0 ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5">{entry.emojis.join(" ")}</span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-white/5 px-2 py-0.5">Text mood</span>
+                          )}
+                          <span className="text-gray-500">•</span>
+                          <span>{entry.results.length} song{entry.results.length === 1 ? "" : "s"}</span>
+                          <span className="text-gray-500">•</span>
+                          <span>{entry.songLimit} requested</span>
+                        </div>
+                      </div>
+                      <span className="text-sm font-semibold text-purple-200">Load</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>,
+          historyPortalTarget,
+        )}
     </div>
   );
 }
