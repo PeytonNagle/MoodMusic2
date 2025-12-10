@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS user_requests (
 CREATE TABLE IF NOT EXISTS recommended_songs (
     id SERIAL PRIMARY KEY,
     request_id INTEGER NOT NULL REFERENCES user_requests(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     position INTEGER NOT NULL,
     spotify_track_id TEXT,
     title TEXT NOT NULL,
@@ -38,3 +39,6 @@ CREATE TABLE IF NOT EXISTS recommended_songs (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_recommended_songs_request_position
     ON recommended_songs(request_id, position);
+
+CREATE INDEX IF NOT EXISTS idx_recommended_songs_user_id
+    ON recommended_songs(user_id);

@@ -3,6 +3,7 @@
 from db import get_connection
 import json
 
+
 def save_user_request(
     text_description,
     emojis,
@@ -35,3 +36,34 @@ def save_user_request(
             new_id = cur.fetchone()["id"]
             conn.commit()
             return new_id
+
+
+def create_user(email, password_hash, display_name=None):
+    """
+    Create a new user account.
+    Returns the inserted row (dict) on success.
+    """
+    query = """
+        INSERT INTO users (email, password_hash, display_name)
+        VALUES (%s, %s, %s)
+        RETURNING id, email, display_name, created_at;
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (email, password_hash, display_name))
+            user = cur.fetchone()
+            conn.commit()
+            return user
+
+
+def get_user_by_email(email):
+    """Return user row (dict) by email, or None if not found."""
+    query = """
+        SELECT id, email, password_hash, display_name, created_at
+        FROM users
+        WHERE email = %s;
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (email,))
+            return cur.fetchone()
