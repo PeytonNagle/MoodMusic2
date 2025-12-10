@@ -611,7 +611,6 @@ export default function App() {
                           <span>{entry.songLimit} requested</span>
                         </div>
                       </div>
-                      <span className="text-sm font-semibold text-purple-200">Load</span>
                     </button>
                   ))}
                 </div>
