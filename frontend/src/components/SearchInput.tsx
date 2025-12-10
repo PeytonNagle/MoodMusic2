@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Search, Sparkles } from "lucide-react";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
@@ -33,6 +33,29 @@ export function SearchInput({
   popularityRanges,
   onChangePopularity,
 }: SearchInputProps) {
+  const SONG_LIMIT_OPTIONS = [5, 10, 15, 20, 25];
+  const [isSongLimitMenuOpen, setIsSongLimitMenuOpen] = useState(false);
+  const songLimitMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (songLimitMenuRef.current && !songLimitMenuRef.current.contains(event.target as Node)) {
+        setIsSongLimitMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isLoading) {
+      setIsSongLimitMenuOpen(false);
+    }
+  }, [isLoading]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -60,48 +83,87 @@ export function SearchInput({
             <div className="mt-4">
               <EmojiPicker value={selectedEmojis} onChange={onChangeEmojis} />
             </div>
-            <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 w-full sm:w-auto">
+            <div className="mt-4 flex flex-col gap-4">
+              <div className="flex flex-col gap-2 w-full sm:w-auto sm:self-start">
                 <label htmlFor="song-limit" className="text-sm text-gray-400">
                   Number of songs:
                 </label>
-                <select
-                  id="song-limit"
-                  value={songLimit}
-                  onChange={(e) => onChangeSongLimit(parseInt(e.target.value, 10))}
-                  className="w-full sm:w-[7rem] px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 select-glass"
-                  disabled={isLoading}
-                >
-                  {[10, 15, 20, 25, 30, 40, 50].map((val) => (
-                    <option key={val} value={val} className="bg-gray-900 text-white">
-                      {val}
-                    </option>
-                  ))}
-                </select>
+                <div ref={songLimitMenuRef} className="relative inline-block">
+                  <button
+                    id="song-limit"
+                    type="button"
+                    onClick={() => setIsSongLimitMenuOpen((open) => !open)}
+                    disabled={isLoading}
+                    aria-haspopup="listbox"
+                    aria-expanded={isSongLimitMenuOpen}
+                    className="inline-flex w-auto min-w-[5rem] items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-left text-sm font-medium text-white shadow-inner shadow-white/5 transition hover:border-purple-500/40 hover:bg-white/10"
+                  >
+                    <span>{songLimit} songs</span>
+                    <svg
+                      className={`w-3 h-3 transition-transform ${isSongLimitMenuOpen ? "rotate-180" : ""}`}
+                      viewBox="0 0 12 12"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                  {isSongLimitMenuOpen && (
+                    <div
+                      className="absolute left-0 z-20 mt-2 w-full min-w-[8rem] overflow-hidden rounded-lg border border-white/10 shadow-2xl shadow-purple-900/20 sm:w-32"
+                      style={{ backgroundColor: "#111827" }}
+                      role="listbox"
+                      aria-labelledby="song-limit"
+                    >
+                      {SONG_LIMIT_OPTIONS.map((option) => (
+                        <button
+                          key={option}
+                          type="button"
+                          onClick={() => {
+                            onChangeSongLimit(option);
+                            setIsSongLimitMenuOpen(false);
+                          }}
+                          role="option"
+                          aria-selected={option === songLimit}
+                          className={`flex w-full items-center justify-between px-3 py-2 text-sm transition ${
+                            option === songLimit ? "bg-purple-500/40 text-white" : "text-white hover:bg-white/10"
+                          }`}
+                        >
+                          <span>{option}</span>
+                          <span className="text-xs uppercase tracking-wide">{option === songLimit ? "selected" : ""}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 w-full sm:w-auto">
-                <label htmlFor="popularity" className="text-sm text-gray-400">
-                  Popularity:
-                </label>
-                <select
-                  id="popularity"
-                  value={popularityLabel}
-                  onChange={(e) => onChangePopularity(e.target.value)}
-                  className="w-full sm:w-52 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 select-glass"
-                  disabled={isLoading}
-                >
-                  {Object.keys(popularityRanges).map((label) => (
-                    <option key={label} value={label} className="bg-gray-900 text-white">
-                      {label}
-                    </option>
-                  ))}
-                </select>
-                <span className="text-xs text-gray-500">
-                  {popularityRanges[popularityLabel]
-                    ? `${popularityRanges[popularityLabel]?.[0]}–${popularityRanges[popularityLabel]?.[1]}`
-                    : "no filter"}
-                </span>
-              </div>
+            </div>
+          </div>
+        </div>
+        <div className="mt-6 pt-4 border-t border-white/10">
+          <div className="flex flex-col gap-2 w-full">
+            <label htmlFor="popularity" className="text-sm text-gray-400">
+              Popularity filter:
+            </label>
+            <div className="flex flex-col gap-2">
+              <select
+                id="popularity"
+                value={popularityLabel}
+                onChange={(e) => onChangePopularity(e.target.value)}
+                className="w-full px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 select-glass"
+                disabled={isLoading}
+              >
+                {Object.keys(popularityRanges).map((label) => (
+                  <option key={label} value={label} className="bg-gray-900 text-white">
+                    {label}
+                  </option>
+                ))}
+              </select>
+              <span className="text-xs text-gray-500">
+                {popularityRanges[popularityLabel]
+                  ? `${popularityRanges[popularityLabel]?.[0]}–${popularityRanges[popularityLabel]?.[1]}`
+                  : "no filter"}
+              </span>
             </div>
           </div>
         </div>
