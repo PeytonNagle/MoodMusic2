@@ -709,48 +709,70 @@ def fetch_user_history_records(user_id: int, limit: int = 20):
                 cur.execute(
                     """
                     SELECT
-                        ur.id,
-                        ur.text_description,
-                        ur.emojis,
-                        ur.num_songs_requested,
-                        ur.gemini_analysis,
-                        ur.created_at,
-                        COALESCE(
-                            json_agg(
-                                json_build_object(
-                                    'position', rs.position,
-                                    'spotify_track_id', rs.spotify_track_id,
-                                    'title', rs.title,
-                                    'artist', rs.artist,
-                                    'album', rs.album,
-                                    'album_art', rs.album_art,
-                                    'preview_url', rs.preview_url,
-                                    'spotify_url', rs.spotify_url,
-                                    'release_year', rs.release_year,
-                                    'duration_ms', rs.duration_ms,
-                                    'duration_formatted', rs.duration_formatted,
-                                    'why_gemini_chose', rs.why_gemini_chose,
-                                    'matched_criteria', rs.matched_criteria
-                                )
-                                ORDER BY rs.position
-                            ) FILTER (WHERE rs.id IS NOT NULL),
-                            '[]'::json
-                        ) AS songs
-                    FROM user_requests ur
-                    LEFT JOIN recommended_songs rs ON rs.request_id = ur.id
-                    WHERE ur.user_id = %s
-                    GROUP BY ur.id
-                    ORDER BY ur.created_at DESC
+                        id,
+                        text_description,
+                        emojis,
+                        num_songs_requested,
+                        gemini_analysis,
+                        created_at
+                    FROM user_requests
+                    WHERE user_id = %s
+                    ORDER BY created_at DESC
                     LIMIT %s;
                     """,
                     (user_id, limit),
                 )
                 request_rows = cur.fetchall() or []
+                request_ids = [row["id"] for row in request_rows]
+                songs_by_request = {rid: [] for rid in request_ids}
+
+                if request_ids:
+                    cur.execute(
+                        """
+                        SELECT
+                            request_id,
+                            position,
+                            spotify_track_id,
+                            title,
+                            artist,
+                            album,
+                            album_art,
+                            preview_url,
+                            spotify_url,
+                            release_year,
+                            duration_ms,
+                            duration_formatted,
+                            why_gemini_chose,
+                            matched_criteria
+                        FROM recommended_songs
+                        WHERE request_id = ANY(%s)
+                        ORDER BY request_id DESC, position ASC;
+                        """,
+                        (request_ids,),
+                    )
+                    song_rows = cur.fetchall() or []
+                    for song in song_rows:
+                        songs_by_request.setdefault(song["request_id"], []).append(
+                            {
+                                "position": song.get("position"),
+                                "spotify_track_id": song.get("spotify_track_id"),
+                                "title": song.get("title"),
+                                "artist": song.get("artist"),
+                                "album": song.get("album"),
+                                "album_art": song.get("album_art"),
+                                "preview_url": song.get("preview_url"),
+                                "spotify_url": song.get("spotify_url"),
+                                "release_year": song.get("release_year"),
+                                "duration_ms": song.get("duration_ms"),
+                                "duration_formatted": song.get("duration_formatted"),
+                                "why_gemini_chose": song.get("why_gemini_chose"),
+                                "matched_criteria": song.get("matched_criteria"),
+                            }
+                        )
 
                 history_payload = []
                 for row in request_rows:
                     request_id = row["id"]
-                    songs_payload = row.get("songs") or []
                     history_payload.append(
                         {
                             "request_id": request_id,
@@ -760,7 +782,7 @@ def fetch_user_history_records(user_id: int, limit: int = 20):
                             "analysis": row.get("gemini_analysis") or {},
                             "popularity_label": None,
                             "created_at": row.get("created_at").isoformat() if row.get("created_at") else None,
-                            "songs": songs_payload,
+                            "songs": songs_by_request.get(request_id, []),
                         }
                     )
                 return history_payload
