@@ -701,6 +701,94 @@ def login_user():
         return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 
+def fetch_user_history_records(user_id: int, limit: int = 20):
+    conn = get_connection()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        ur.id,
+                        ur.text_description,
+                        ur.emojis,
+                        ur.num_songs_requested,
+                        ur.gemini_analysis,
+                        ur.created_at,
+                        COALESCE(
+                            json_agg(
+                                json_build_object(
+                                    'position', rs.position,
+                                    'spotify_track_id', rs.spotify_track_id,
+                                    'title', rs.title,
+                                    'artist', rs.artist,
+                                    'album', rs.album,
+                                    'album_art', rs.album_art,
+                                    'preview_url', rs.preview_url,
+                                    'spotify_url', rs.spotify_url,
+                                    'release_year', rs.release_year,
+                                    'duration_ms', rs.duration_ms,
+                                    'duration_formatted', rs.duration_formatted,
+                                    'why_gemini_chose', rs.why_gemini_chose,
+                                    'matched_criteria', rs.matched_criteria
+                                )
+                                ORDER BY rs.position
+                            ) FILTER (WHERE rs.id IS NOT NULL),
+                            '[]'::json
+                        ) AS songs
+                    FROM user_requests ur
+                    LEFT JOIN recommended_songs rs ON rs.request_id = ur.id
+                    WHERE ur.user_id = %s
+                    GROUP BY ur.id
+                    ORDER BY ur.created_at DESC
+                    LIMIT %s;
+                    """,
+                    (user_id, limit),
+                )
+                request_rows = cur.fetchall() or []
+
+                history_payload = []
+                for row in request_rows:
+                    request_id = row["id"]
+                    songs_payload = row.get("songs") or []
+                    history_payload.append(
+                        {
+                            "request_id": request_id,
+                            "text_description": row.get("text_description"),
+                            "emojis": row.get("emojis") or [],
+                            "num_songs_requested": row.get("num_songs_requested"),
+                            "analysis": row.get("gemini_analysis") or {},
+                            "popularity_label": None,
+                            "created_at": row.get("created_at").isoformat() if row.get("created_at") else None,
+                            "songs": songs_payload,
+                        }
+                    )
+                return history_payload
+    except Exception:
+        logger.exception("Failed to fetch history from database")
+        raise
+    finally:
+        conn.close()
+
+
+@app.route('/api/history/<int:user_id>', methods=['GET'])
+def get_user_history(user_id):
+    if user_id <= 0:
+        return jsonify({"success": False, "history": [], "error": "Invalid user id"}), 400
+    limit_param = request.args.get("limit", 20)
+    try:
+        limit = int(limit_param)
+    except (ValueError, TypeError):
+        limit = 20
+    limit = max(1, min(limit, 50))
+
+    try:
+        history_records = fetch_user_history_records(user_id, limit)
+        return jsonify({"success": True, "history": history_records})
+    except Exception:
+        return jsonify({"success": False, "history": [], "error": "Failed to load history"}), 500
+
+
 def save_user_request(query, emojis, limit, analysis, user_id=None):
     conn = get_connection()
     try:

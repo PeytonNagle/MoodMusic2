@@ -1,20 +1,61 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { SearchInput } from "./components/SearchInput";
 import { ResultsGrid } from "./components/ResultsGrid";
-import { ApiService, Track, User } from "./services/api";
+import { ApiService, Track, User, RecommendResponse, HistoryItemResponse } from "./services/api";
+
+const POPULARITY_RANGES = {
+  Any: null,
+  "Global / Superstar": [90, 100],
+  "Hot / Established": [75, 89],
+  "Buzzing / Moderate": [50, 74],
+  Growing: [25, 49],
+  Rising: [15, 24],
+  "Under the Radar": [0, 14],
+} as const;
+
+type PopularityLabel = keyof typeof POPULARITY_RANGES;
+type AnalysisData = { mood?: string | null; matched_criteria?: string[] | null } | null;
+
+const buildTrackKey = (track: Track): string | null => {
+  if (!track) return null;
+  if (track.id) return `id:${track.id}`;
+  const title = (track.title || "").trim().toLowerCase();
+  const artist = (track.artist || "").trim().toLowerCase();
+  if (!title && !artist) return null;
+  return `${title}|${artist}`;
+};
+
+const mergeUniqueTracks = (target: Track[], incoming: Track[], seen: Set<string>): Track[] => {
+  for (const track of incoming || []) {
+    const key = buildTrackKey(track);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    target.push(track);
+  }
+  return target;
+};
+
+const normalizePopularityLabel = (value: string | null | undefined): PopularityLabel => {
+  if (typeof value === "string" && value in POPULARITY_RANGES) {
+    return value as PopularityLabel;
+  }
+  return "Any";
+};
+
+interface HistoryEntry {
+  id: string;
+  timestamp: number;
+  inputQuery: string;
+  emojis: string[];
+  songLimit: number;
+  popularityLabel: PopularityLabel;
+  results: Track[];
+  analysis: AnalysisData;
+  lastSearchLabel: string;
+}
 
 export default function App() {
-  const POPULARITY_RANGES = {
-    Any: null,
-    "Global / Superstar": [90, 100],
-    "Hot / Established": [75, 89],
-    "Buzzing / Moderate": [50, 74],
-    Growing: [25, 49],
-    Rising: [15, 24],
-    "Under the Radar": [0, 14],
-  } as const;
-
-  type PopularityLabel = keyof typeof POPULARITY_RANGES;
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedEmojis, setSelectedEmojis] = useState<string[]>([]);
@@ -39,8 +80,73 @@ export default function App() {
   const [authDisplayName, setAuthDisplayName] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
+  const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [historyMessage, setHistoryMessage] = useState<string | null>(null);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
 
   const isLoading = isAnalyzing || isRecommending;
+  const historyPortalTarget = typeof document !== "undefined" ? document.body : null;
+
+  const mapHistoryItem = (item: HistoryItemResponse): HistoryEntry => {
+    const createdTimestamp = item.created_at ? Date.parse(item.created_at) : Date.now();
+    const songs: Track[] = (item.songs || []).map((song) => ({
+      id: song.spotify_track_id || null,
+      title: song.title || "Unknown title",
+      artist: song.artist || "Unknown artist",
+      album: song.album || "Unknown album",
+      album_art: song.album_art || null,
+      preview_url: song.preview_url || null,
+      spotify_url: song.spotify_url || null,
+      release_year: song.release_year || null,
+      duration_formatted: song.duration_formatted || null,
+      popularity: typeof song.popularity === "number" ? song.popularity : 0,
+    }));
+
+    const emojis = Array.isArray(item.emojis) ? item.emojis : [];
+    const label = normalizePopularityLabel(item.popularity_label);
+    const analysisData = item.analysis && typeof item.analysis === "object" ? item.analysis : null;
+
+    return {
+      id: `req-${item.request_id}`,
+      timestamp: createdTimestamp,
+      inputQuery: item.text_description || "",
+      emojis,
+      songLimit: item.num_songs_requested || 10,
+      popularityLabel: label,
+      results: songs,
+      analysis: analysisData,
+      lastSearchLabel: item.text_description || (emojis.join(" ") || "Mood search"),
+    };
+  };
+
+  const loadHistory = async (userId: number) => {
+    setIsHistoryLoading(true);
+    setHistoryMessage(null);
+    try {
+      const response = await ApiService.getUserHistory(userId, 20);
+      if (response.success) {
+        const mapped = response.history.map((entry) => mapHistoryItem(entry));
+        setHistoryEntries(mapped);
+      } else {
+        setHistoryMessage(response.error || "Unable to load history.");
+      }
+    } catch (err) {
+      console.error("History load error:", err);
+      setHistoryMessage("Unable to load history. Please try again.");
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!user) {
+      setHistoryEntries([]);
+      setHistoryMessage(null);
+      return;
+    }
+    loadHistory(user.id);
+  }, [user]);
 
   const handleAuthSubmit = async () => {
     setAuthError(null);
@@ -79,10 +185,52 @@ export default function App() {
     }
   };
 
+  const handleOpenHistory = () => {
+    if (!user) {
+      setHistoryMessage("Sign in to view your personal history.");
+      setIsHistoryOpen(true);
+      return;
+    }
+    if (!historyEntries.length && !isHistoryLoading) {
+      loadHistory(user.id);
+    }
+    setHistoryMessage(null);
+    setIsHistoryOpen(true);
+  };
+
+  const handleHistorySelect = (entry: HistoryEntry) => {
+    if (!user) {
+      setHistoryMessage("Please sign in to load saved history.");
+      setIsHistoryOpen(true);
+      return;
+    }
+    setSearchQuery(entry.inputQuery);
+    setSelectedEmojis(entry.emojis);
+    setSongLimit(entry.songLimit);
+    setPopularityLabel(entry.popularityLabel);
+    setResults(entry.results);
+    setAnalysis(entry.analysis);
+    setLastSearch(entry.lastSearchLabel);
+    setError(null);
+    setRawResponse(null);
+    setIsAnalyzing(false);
+    setIsRecommending(false);
+    setIsHistoryOpen(false);
+  };
+
   const handleSearch = async () => {
-    const hasQuery = searchQuery.trim().length > 0;
+    const trimmedQuery = searchQuery.trim();
+    const hasQuery = trimmedQuery.length > 0;
     const hasEmojis = selectedEmojis.length > 0;
     if (!hasQuery && !hasEmojis) return;
+
+    const snapshot = {
+      inputQuery: searchQuery,
+      emojis: [...selectedEmojis],
+      songLimit,
+      popularityLabel,
+      lastSearchLabel: (hasQuery ? trimmedQuery : selectedEmojis.join(" ")) || "Mood search",
+    };
 
     setIsAnalyzing(true);
     setIsRecommending(false);
@@ -152,6 +300,40 @@ export default function App() {
             "Failed to get recommendations"
         );
         setResults([]);
+        return;
+      }
+
+      const finalSongs = aggregatedSongs.slice(0, songLimit);
+
+      if (finalSongs.length === 0) {
+        setError("No songs found for this request. Try adjusting your mood or filters.");
+        setResults([]);
+        return;
+      }
+
+      setResults(finalSongs);
+      const finalAnalysis = latestAnalysisData || analysisResponse.analysis || {};
+      setAnalysis(finalAnalysis);
+      if (finalSongs.length < songLimit) {
+        setError(`Only found ${finalSongs.length} songs for this request. Try broadening your filters.`);
+      }
+
+      if (user?.id && finalSongs.length > 0) {
+        const historyEntry: HistoryEntry = {
+          id: `temp-${Date.now()}`,
+          timestamp: Date.now(),
+          inputQuery: snapshot.inputQuery,
+          emojis: snapshot.emojis,
+          songLimit: snapshot.songLimit,
+          popularityLabel: snapshot.popularityLabel,
+          results: finalSongs,
+          analysis: finalAnalysis,
+          lastSearchLabel: snapshot.lastSearchLabel,
+        };
+        setHistoryEntries((prev) => {
+          const filtered = prev.filter((entry) => entry.lastSearchLabel !== historyEntry.lastSearchLabel);
+          return [historyEntry, ...filtered].slice(0, 20);
+        });
       }
     } catch (err: any) {
       console.error("Search error:", err);
