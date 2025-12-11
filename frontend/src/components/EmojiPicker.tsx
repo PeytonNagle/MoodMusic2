@@ -156,11 +156,12 @@ export function EmojiPicker({ value, onChange }: EmojiPickerProps) {
       {isExpanded && (
         <div
           ref={popoverRef}
-          className="absolute z-50 mt-2 left-0 sm:right-0 top-full rounded-2xl shadow-2xl overflow-hidden w-full sm:w-auto"
+          className="absolute z-50 mt-2 left-1/2 sm:left-auto sm:right-0 top-full -translate-x-1/2 sm:translate-x-0 rounded-2xl shadow-2xl overflow-hidden"
           style={{
             backgroundColor: "#050914",
-            width: "min(320px, calc(100vw - 2rem))",
-            boxShadow: "0 22px 70px rgba(0,0,0,0.6)",
+            width: "min(260px, calc(100vw - 2rem))",
+            maxWidth: "320px",
+            boxShadow: "0 18px 60px rgba(0,0,0,0.55)",
             opacity: 1,
             backdropFilter: "none",
             border: "1px solid rgba(255,255,255,0.08)",
@@ -168,7 +169,7 @@ export function EmojiPicker({ value, onChange }: EmojiPickerProps) {
             pointerEvents: "auto",
           }}
         >
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-3 px-3 pt-3">
             <span className="text-sm text-gray-300">More emojis</span>
             <button
               type="button"
@@ -180,12 +181,11 @@ export function EmojiPicker({ value, onChange }: EmojiPickerProps) {
             </button>
           </div>
           <div
-            className="max-h-52 overflow-y-auto pr-1"
+            className="max-h-48 overflow-y-auto pr-2 pb-3 pl-3"
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-              gap: "0.5rem",
-              paddingBottom: "0.1rem",
+              gridTemplateColumns: "repeat(auto-fit, minmax(48px, 1fr))",
+              gap: "0.45rem",
               justifyItems: "center",
               alignItems: "center",
             }}

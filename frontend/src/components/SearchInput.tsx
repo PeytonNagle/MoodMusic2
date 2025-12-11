@@ -82,8 +82,8 @@ export function SearchInput({
             <span>History{historyCount > 0 ? ` (${historyCount})` : ""}</span>
           </button>
         </div>
-        <div className="grid grid-cols-[auto,1fr] gap-3 sm:gap-4 items-start w-full">
-          <div className="mt-1 sm:mt-3">
+        <div className="grid grid-cols-1 sm:grid-cols-[auto,1fr] gap-3 sm:gap-4 items-start w-full">
+          <div className="mt-1 sm:mt-3 sm:mx-0 flex sm:block justify-center">
             <Sparkles className="w-6 h-6 text-purple-400" />
           </div>
           <div className="w-full">
@@ -181,24 +181,26 @@ export function SearchInput({
             </div>
           </div>
         </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mt-4 pt-4 border-t border-white/10">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-6 mt-4 pt-4 border-t border-white/10">
           <div className="flex items-center gap-2 text-gray-400 text-sm text-center sm:text-left justify-center sm:justify-start">
             <Search className="w-4 h-4" />
             <span className="text-sm">Mood-first music discovery (genres/artists respected)</span>
           </div>
-          <Button
-            onClick={onSearch}
-            disabled={disableSearch}
-            className="w-40 self-center sm:self-auto bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white px-4"
-          >
-            {isLoading ? (
-              <>
-                <span className="animate-pulse">{loadingLabel || "Searching..."}</span>
-              </>
-            ) : (
-              "Find Mood Songs"
-            )}
-          </Button>
+          <div className="flex justify-center sm:justify-end w-full sm:w-auto">
+            <Button
+              onClick={onSearch}
+              disabled={disableSearch}
+              className="w-full sm:w-40 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white px-4"
+            >
+              {isLoading ? (
+                <>
+                  <span className="animate-pulse">{loadingLabel || "Searching..."}</span>
+                </>
+              ) : (
+                "Find Mood Songs"
+              )}
+            </Button>
+          </div>
         </div>
       </div>
     </div>
