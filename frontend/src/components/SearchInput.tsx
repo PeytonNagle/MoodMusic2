@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Clock3, Search, Sparkles } from "lucide-react";
+import { Clock, MoreHorizontal, Search, Sparkles } from "lucide-react";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { EmojiPicker } from "./EmojiPicker";
@@ -21,6 +21,8 @@ interface SearchInputProps {
   historyCount: number;
 }
 
+const SONG_LIMIT_OPTIONS = [5, 10, 15, 20, 25];
+
 export function SearchInput({
   value,
   onChange,
@@ -37,7 +39,6 @@ export function SearchInput({
   onOpenHistory,
   historyCount,
 }: SearchInputProps) {
-  const SONG_LIMIT_OPTIONS = [5, 10, 15, 20, 25];
   const [isSongLimitMenuOpen, setIsSongLimitMenuOpen] = useState(false);
   const songLimitMenuRef = useRef<HTMLDivElement>(null);
 
@@ -68,41 +69,51 @@ export function SearchInput({
   };
 
   const disableSearch = isLoading || (!value.trim() && selectedEmojis.length === 0);
+  const popularityRange = popularityRanges[popularityLabel];
 
   return (
-    <div className="w-full max-w-full sm:max-w-4xl mx-auto px-2 sm:px-0">
-      <div className="relative backdrop-blur-lg bg-white/5 border border-white/10 rounded-2xl p-4 sm:p-6 shadow-2xl">
-        <div className="flex justify-end mb-2">
+    <div className="w-full max-w-4xl mx-auto px-3 sm:px-0">
+      <div className="relative overflow-hidden rounded-[26px] backdrop-blur-xl bg-[#0f162a]/80 border border-white/10 shadow-2xl shadow-black/30">
+        <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-5">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/30">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-gray-300">Tell us the mood</p>
+              <h3 className="text-lg font-semibold text-white leading-tight">Find songs by vibe</h3>
+            </div>
+          </div>
           <button
             type="button"
             onClick={onOpenHistory}
-            className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium uppercase tracking-wide text-gray-200 transition hover:border-purple-400/60 hover:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/40"
+            className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-gray-100 transition hover:border-indigo-400/60 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
           >
-            <Clock3 className="w-3.5 h-3.5 text-purple-300" />
+            <Clock className="w-3.5 h-3.5 text-indigo-200" />
             <span>History{historyCount > 0 ? ` (${historyCount})` : ""}</span>
           </button>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-[auto,1fr] gap-3 sm:gap-4 items-start w-full">
-          <div className="mt-1 sm:mt-3 sm:mx-0 flex sm:block justify-center">
-            <Sparkles className="w-6 h-6 text-purple-400" />
-          </div>
-          <div className="w-full">
+
+        <div className="px-5 pb-6 space-y-6">
+          <div className="pt-2">
             <Textarea
               value={value}
               onChange={(e) => onChange(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Describe your mood first, then optionally genres or artists (add emojis if you want)"
-              className="min-h-[100px] bg-transparent border-none resize-none text-white placeholder:text-gray-500 focus-visible:ring-0 focus-visible:ring-offset-0 p-0 text-left"
+              placeholder="Describe your mood, genre, or artists (emojis welcome)"
+              className="min-h-[96px] bg-white/5 border border-white/10 rounded-2xl text-white placeholder:text-gray-400 focus-visible:ring-2 focus-visible:ring-indigo-500/40 focus-visible:ring-offset-0"
             />
-            <div className="mt-4">
-              <EmojiPicker value={selectedEmojis} onChange={onChangeEmojis} />
-            </div>
-            <div className="mt-4 flex flex-col gap-4">
-              <div className="flex flex-col gap-2 w-full sm:w-auto sm:self-start">
-                <label htmlFor="song-limit" className="text-sm text-gray-400">
-                  Number of songs:
+          </div>
+
+          <div className="space-y-4">
+            <EmojiPicker value={selectedEmojis} onChange={onChangeEmojis} />
+
+            <div className="grid grid-cols-2 sm:grid-cols-1 gap-2">
+              <div className="flex flex-col gap-2 w-full sm:w-auto sm:self-start" ref={songLimitMenuRef}>
+                <label htmlFor="song-limit" className="text-sm text-gray-200">
+                  Number of songs
                 </label>
-                <div ref={songLimitMenuRef} className="relative inline-block">
+                <div className="relative inline-block w-full sm:w-auto">
                   <button
                     id="song-limit"
                     type="button"
@@ -110,7 +121,7 @@ export function SearchInput({
                     disabled={isLoading}
                     aria-haspopup="listbox"
                     aria-expanded={isSongLimitMenuOpen}
-                    className="inline-flex w-auto min-w-[5rem] items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-left text-sm font-medium text-white shadow-inner shadow-white/5 transition hover:border-purple-500/40 hover:bg-white/10"
+                    className="inline-flex w-full sm:w-auto items-center justify-between gap-2 rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-left text-sm font-medium text-white shadow-inner shadow-white/5 transition hover:border-indigo-500/50 hover:bg-white/10"
                   >
                     <span>{songLimit} songs</span>
                     <svg
@@ -124,8 +135,7 @@ export function SearchInput({
                   </button>
                   {isSongLimitMenuOpen && (
                     <div
-                      className="absolute left-0 z-20 mt-2 w-full min-w-[8rem] overflow-hidden rounded-lg border border-white/10 shadow-2xl shadow-purple-900/20 sm:w-32"
-                      style={{ backgroundColor: "#111827" }}
+                      className="absolute left-0 z-20 mt-2 w-full min-w-[8rem] overflow-hidden rounded-xl border border-white/15 shadow-2xl shadow-indigo-900/20 sm:w-36 bg-slate-900/95"
                       role="listbox"
                       aria-labelledby="song-limit"
                     >
@@ -140,7 +150,7 @@ export function SearchInput({
                           role="option"
                           aria-selected={option === songLimit}
                           className={`flex w-full items-center justify-between px-3 py-2 text-sm transition ${
-                            option === songLimit ? "bg-purple-500/40 text-white" : "text-white hover:bg-white/10"
+                            option === songLimit ? "bg-indigo-500/40 text-white" : "text-white hover:bg-white/10"
                           }`}
                         >
                           <span>{option}</span>
@@ -151,55 +161,48 @@ export function SearchInput({
                   )}
                 </div>
               </div>
+
+              <div className="flex flex-col gap-2">
+                <label htmlFor="popularity" className="text-sm text-gray-200">
+                  Popularity filter
+                </label>
+                <div className="relative">
+                  <select
+                    id="popularity"
+                    value={popularityLabel}
+                    onChange={(e) => onChangePopularity(e.target.value)}
+                    className="w-full appearance-none px-3 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 pr-10"
+                    disabled={isLoading}
+                  >
+                    {Object.keys(popularityRanges).map((label) => (
+                      <option key={label} value={label} className="bg-gray-900 text-white">
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                  <MoreHorizontal className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                </div>
+                <span className="text-xs text-gray-400">
+                  {popularityRange ? `${popularityRange[0]}-${popularityRange[1]}` : "No filter applied"}
+                </span>
+              </div>
             </div>
           </div>
-        </div>
-        <div className="mt-6 pt-4 border-t border-white/10">
-          <div className="flex flex-col gap-2 w-full">
-            <label htmlFor="popularity" className="text-sm text-gray-400">
-              Popularity filter:
-            </label>
-            <div className="flex flex-col gap-2">
-              <select
-                id="popularity"
-                value={popularityLabel}
-                onChange={(e) => onChangePopularity(e.target.value)}
-                className="w-full px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 select-glass"
-                disabled={isLoading}
+
+          <div className="flex flex-col gap-3 pt-4 border-t border-white/10">
+            <div className="flex justify-center w-full">
+              <Button
+                onClick={onSearch}
+                disabled={disableSearch}
+                className="w-full sm:w-2/3 lg:w-1/2 bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white px-6 py-4 text-base font-semibold shadow-lg shadow-indigo-500/30"
               >
-                {Object.keys(popularityRanges).map((label) => (
-                  <option key={label} value={label} className="bg-gray-900 text-white">
-                    {label}
-                  </option>
-                ))}
-              </select>
-              <span className="text-xs text-gray-500">
-                {popularityRanges[popularityLabel]
-                  ? `${popularityRanges[popularityLabel]?.[0]}–${popularityRanges[popularityLabel]?.[1]}`
-                  : "no filter"}
-              </span>
-            </div>
-          </div>
-        </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-6 mt-4 pt-4 border-t border-white/10">
-          <div className="flex items-center gap-2 text-gray-400 text-sm text-center sm:text-left justify-center sm:justify-start">
-            <Search className="w-4 h-4" />
-            <span className="text-sm">Mood-first music discovery (genres/artists respected)</span>
-          </div>
-          <div className="flex justify-center sm:justify-end w-full sm:w-auto">
-            <Button
-              onClick={onSearch}
-              disabled={disableSearch}
-              className="w-full sm:w-40 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white px-4"
-            >
-              {isLoading ? (
-                <>
+                {isLoading ? (
                   <span className="animate-pulse">{loadingLabel || "Searching..."}</span>
-                </>
-              ) : (
-                "Find Mood Songs"
-              )}
-            </Button>
+                ) : (
+                  "Generate playlist"
+                )}
+              </Button>
+            </div>
           </div>
         </div>
       </div>

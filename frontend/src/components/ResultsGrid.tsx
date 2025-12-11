@@ -13,20 +13,32 @@ export function ResultsGrid({ songs, searchQuery }: ResultsGridProps) {
   }
 
   return (
-    <div className="w-full max-w-7xl mx-auto mt-12 animate-in fade-in duration-500">
+    <div className="w-full max-w-7xl mx-auto mt-12 animate-in fade-in duration-700">
       {searchQuery && (
-        <div className="mb-6 flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-3">
-            <Music className="w-5 h-5 text-purple-400" />
-            <h2 className="text-white">
-              Results for: <span className="text-gray-400">{searchQuery}</span>
-            </h2>
+        <div className="mb-8 flex items-center gap-3 flex-wrap px-4 sm:px-0">
+          <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 backdrop-blur-sm">
+            <Music className="w-5 h-5 text-indigo-400" />
+            <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2">
+              <span className="text-sm text-gray-400">Results for:</span>
+              <span className="font-semibold text-white">{searchQuery}</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-sm text-gray-400">
+            <span>•</span>
+            <span>{songs.length} {songs.length === 1 ? "track" : "tracks"} found</span>
           </div>
         </div>
       )}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {songs.map((track) => (
-          <SongCard key={track.id || `${track.title}-${track.artist}`} track={track} />
+      
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 px-4 sm:px-0">
+        {songs.map((track, index) => (
+          <div
+            key={track.id || `${track.title}-${track.artist}-${index}`}
+            className="animate-in fade-in slide-in-from-bottom-4"
+            style={{ animationDelay: `${index * 50}ms`, animationFillMode: "backwards" }}
+          >
+            <SongCard track={track} />
+          </div>
         ))}
       </div>
     </div>
