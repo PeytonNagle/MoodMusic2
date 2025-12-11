@@ -156,7 +156,7 @@ export function EmojiPicker({ value, onChange }: EmojiPickerProps) {
       {isExpanded && (
         <div
           ref={popoverRef}
-          className="absolute z-50 mt-2 left-1/2 sm:left-auto sm:right-0 top-full -translate-x-1/2 sm:translate-x-0 rounded-2xl shadow-2xl overflow-hidden"
+          className="absolute z-50 bottom-full mb-3 left-1/2 sm:left-auto sm:right-0 -translate-x-1/2 sm:translate-x-0 rounded-2xl shadow-2xl overflow-hidden"
           style={{
             backgroundColor: "#050914",
             width: "min(260px, calc(100vw - 2rem))",
