@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
+import { Sparkles, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
 import { SearchInput } from "./components/SearchInput";
 import { ResultsGrid } from "./components/ResultsGrid";
+import { Modal } from "./components/Modal";
+import { Button } from "./components/ui/button";
 import { ApiService, Track, User, RecommendResponse, HistoryItemResponse } from "./services/api";
 
 const POPULARITY_RANGES = {
@@ -56,7 +58,6 @@ interface HistoryEntry {
 }
 
 export default function App() {
-
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedEmojis, setSelectedEmojis] = useState<string[]>([]);
   const [songLimit, setSongLimit] = useState<number>(10);
@@ -68,6 +69,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [rawResponse, setRawResponse] = useState<any | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisData>(null);
+  const [showDebug, setShowDebug] = useState(false);
 
   const [user, setUser] = useState<User | null>(null);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
@@ -76,13 +78,14 @@ export default function App() {
   const [authDisplayName, setAuthDisplayName] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+
   const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [historyMessage, setHistoryMessage] = useState<string | null>(null);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
 
   const isLoading = isAnalyzing || isRecommending;
-  const historyPortalTarget = typeof document !== "undefined" ? document.body : null;
 
   const mapHistoryItem = (item: HistoryItemResponse): HistoryEntry => {
     const createdTimestamp = item.created_at ? Date.parse(item.created_at) : Date.now();
@@ -166,6 +169,7 @@ export default function App() {
         setAuthEmail("");
         setAuthPassword("");
         setAuthDisplayName("");
+        setIsAuthModalOpen(false);
       } else {
         setAuthError(response.error || "Unable to complete request");
       }
@@ -231,6 +235,7 @@ export default function App() {
     setAnalysis(null);
     setRawResponse(null);
     setLastSearch(snapshot.lastSearchLabel);
+    setShowDebug(false);
 
     try {
       const analysisResponse = await ApiService.analyzeMood({
@@ -272,8 +277,8 @@ export default function App() {
         const remainingNeeded = songLimit - aggregatedSongs.length;
         const requestLimit = Math.max(remainingNeeded, 10);
         const recommendResponse = await ApiService.recommendMusic({
-            ...recommendBasePayload,
-            limit: requestLimit,
+          ...recommendBasePayload,
+          limit: requestLimit,
         });
         lastRecommendResponse = recommendResponse;
 
@@ -343,97 +348,76 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black">
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-slate-900 to-black text-white">
+      {/* Background Effects */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl" />
-        <div className="absolute bottom-0 left-0 w-96 h-96 bg-pink-500/20 rounded-full blur-3xl" />
+        <div className="absolute top-0 right-0 w-[40rem] h-[40rem] bg-indigo-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDuration: "4s" }} />
+        <div className="absolute bottom-0 left-0 w-[40rem] h-[40rem] bg-green-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDuration: "6s" }} />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[30rem] h-[30rem] bg-amber-500/5 rounded-full blur-3xl animate-pulse" style={{ animationDuration: "8s" }} />
       </div>
 
-      <div className="relative z-10 px-6 py-12">
-        <div className="max-w-7xl mx-auto mb-12">
-          <div className="text-center mb-8">
-            <h1 className="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent mb-2">
-              Mood to Music
-            </h1>
-            <p className="text-gray-400">Describe your mood; mention genres or artists if you want</p>
-          </div>
-        </div>
-
-        <div className="max-w-md mx-auto mb-10 bg-white/5 border border-white/10 rounded-2xl p-6 shadow-xl">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <p className="text-sm text-gray-400 uppercase tracking-widest">Account</p>
-              <h2 className="text-xl font-semibold text-white">
-                {user ? "Welcome back" : authMode === "login" ? "Log in" : "Create an account"}
-              </h2>
+      {/* Header */}
+      <header className="relative z-10 px-4 sm:px-6 pt-6 pb-4">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/30 border border-indigo-400/20">
+              <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+              </svg>
             </div>
-            {user && (
-              <button
-                onClick={() => setUser(null)}
-                className="text-sm text-purple-300 hover:text-purple-100 transition"
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-gray-400">Mood to</p>
+              <p className="text-xl font-bold text-white leading-tight">Music</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            {user ? (
+              <>
+                <div className="flex items-center gap-2 rounded-full bg-white/5 border border-white/10 px-4 py-2">
+                  <div className="h-8 w-8 rounded-full bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center font-semibold text-white shadow-sm">
+                    {(user.display_name || user.email || "?").charAt(0).toUpperCase()}
+                  </div>
+                  <span className="text-sm text-gray-100 hidden sm:inline">{user.display_name || user.email}</span>
+                </div>
+                <button
+                  onClick={() => {
+                    setUser(null);
+                    setHistoryEntries([]);
+                  }}
+                  className="text-sm text-gray-400 hover:text-white transition"
+                >
+                  Log out
+                </button>
+              </>
+            ) : (
+              <Button
+                onClick={() => setIsAuthModalOpen(true)}
+                className="rounded-full border border-indigo-400/30 bg-gradient-to-r from-indigo-500 to-indigo-600 px-5 py-2 font-semibold text-white shadow-lg shadow-indigo-500/30 hover:from-indigo-600 hover:to-indigo-700 transition"
               >
-                Log out
-              </button>
+                Log in / Sign up
+              </Button>
             )}
           </div>
-
-          {!user && (
-            <>
-              <div className="space-y-3">
-                <input
-                  type="email"
-                  placeholder="Email"
-                  className="w-full rounded-xl bg-white/10 border border-white/20 px-4 py-2.5 text-white placeholder-gray-400 focus:outline-none focus:border-purple-400"
-                  value={authEmail}
-                  onChange={(e) => setAuthEmail(e.target.value)}
-                />
-                <input
-                  type="password"
-                  placeholder="Password"
-                  className="w-full rounded-xl bg-white/10 border border-white/20 px-4 py-2.5 text-white placeholder-gray-400 focus:outline-none focus:border-purple-400"
-                  value={authPassword}
-                  onChange={(e) => setAuthPassword(e.target.value)}
-                />
-                {authMode === "register" && (
-                  <input
-                    type="text"
-                    placeholder="Display name (optional)"
-                    className="w-full rounded-xl bg-white/10 border border-white/20 px-4 py-2.5 text-white placeholder-gray-400 focus:outline-none focus:border-purple-400"
-                    value={authDisplayName}
-                    onChange={(e) => setAuthDisplayName(e.target.value)}
-                  />
-                )}
-              </div>
-
-              <button
-                onClick={handleAuthSubmit}
-                disabled={isAuthLoading || !authEmail || !authPassword}
-                className="w-full mt-4 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 py-2.5 text-white font-semibold shadow-lg shadow-purple-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isAuthLoading ? "Please wait…" : authMode === "login" ? "Log in" : "Register"}
-              </button>
-
-              <button
-                onClick={() => {
-                  setAuthMode(authMode === "login" ? "register" : "login");
-                  setAuthError(null);
-                }}
-                className="w-full mt-3 text-sm text-gray-400 hover:text-white transition"
-              >
-                {authMode === "login" ? "Need an account? Register" : "Already have an account? Log in"}
-              </button>
-
-              {authError && <p className="text-sm text-red-400 mt-3 text-center">{authError}</p>}
-            </>
-          )}
-
-          {user && (
-            <div className="mt-4 text-sm text-gray-300">
-              Signed in as <span className="text-white font-medium">{user.display_name || user.email}</span>
-            </div>
-          )}
         </div>
+      </header>
 
+      {/* Main Content */}
+      <main className="relative z-10 px-4 sm:px-6 pb-12">
+        {/* Hero Section */}
+        <section className="max-w-3xl mx-auto text-center mt-12 mb-10 space-y-4">
+          <div className="inline-flex items-center gap-2 rounded-full bg-white/5 border border-white/10 px-4 py-2 text-sm font-semibold text-indigo-200 shadow-lg shadow-indigo-500/10">
+            <Sparkles className="w-4 h-4" />
+            <span>AI-powered playlist generation</span>
+          </div>
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white leading-tight">
+            Match your music to your mood.
+          </h1>
+          <p className="text-gray-300 text-lg sm:text-xl max-w-2xl mx-auto">
+            Describe the vibe — we'll build the playlist.
+          </p>
+        </section>
+
+        {/* Search Input */}
         <SearchInput
           value={searchQuery}
           onChange={setSearchQuery}
@@ -451,174 +435,278 @@ export default function App() {
           historyCount={user ? historyEntries.length : 0}
         />
 
+        {/* Analysis Display */}
         {(isAnalyzing || analysis) && (
-          <div className="w-full max-w-4xl mx-auto mt-6">
-            <div className="bg-white/5 border border白/10 rounded-xl p-4 flex items-start justify-between">
-              <div>
-                <div className="text-sm text-gray-400 mb-1">Mood analysis</div>
-                {analysis ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    {analysis.mood && (
-                      <span className="text-xs px-2 py-1 rounded-full bg-purple-500/20 text-white border border-purple-500/30">
-                        Mood: {analysis.mood}
-                      </span>
-                    )}
-                    {analysis.matched_criteria?.map((c) => (
-                      <span key={c} className="text-xs px-2 py-1 rounded-full bg-white/5 text-white border border-white/10">
-                        {c}
-                      </span>
-                    ))}
-                    {!analysis.mood && !analysis.matched_criteria?.length && (
-                      <span className="text-xs text-gray-400">No analysis details returned</span>
-                    )}
+          <div className="w-full max-w-3xl mx-auto mt-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-5 backdrop-blur-sm">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <div className="text-sm font-semibold text-gray-300 mb-2">Mood analysis</div>
+                  {analysis ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      {analysis.mood && (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-indigo-500/20 text-indigo-200 border border-indigo-500/30 text-sm font-medium">
+                          <Sparkles className="w-3.5 h-3.5" />
+                          {analysis.mood}
+                        </span>
+                      )}
+                      {analysis.matched_criteria?.map((c) => (
+                        <span key={c} className="px-3 py-1.5 rounded-full bg-white/5 text-gray-300 border border-white/10 text-sm">
+                          {c}
+                        </span>
+                      ))}
+                      {!analysis.mood && !analysis.matched_criteria?.length && (
+                        <span className="text-sm text-gray-400">No analysis details available</span>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-sm text-gray-400">
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      <span>Analyzing your request...</span>
+                    </div>
+                  )}
+                </div>
+                {!isAnalyzing && (
+                  <div className="flex items-center gap-1.5 text-xs text-green-400">
+                    <div className="h-2 w-2 rounded-full bg-green-400 animate-pulse" />
+                    <span>Ready</span>
                   </div>
-                ) : (
-                  <div className="text-xs text-gray-400">Analyzing your request...</div>
                 )}
               </div>
-              <div className="text-xs text-purple-300">
-                {isRecommending ? "Finding songs..." : isAnalyzing ? "Analyzing..." : "Analysis ready"}
-              </div>
+              {isRecommending && (
+                <div className="flex items-center gap-3 mt-4 pt-4 border-t border-white/10 text-sm text-gray-300">
+                  <svg className="animate-spin h-5 w-5 text-indigo-400" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  <span>Fetching recommendations...</span>
+                </div>
+              )}
             </div>
-            {isRecommending && (
-              <div className="flex items-center gap-3 mt-3 text-base text-gray-400">
-                <span className="spinner w-6 h-6" aria-hidden="true" />
-                <span className="text-gray-100">Fetching recommendations...</span>
-              </div>
-            )}
           </div>
         )}
 
+        {/* Results Grid */}
         <ResultsGrid songs={results} searchQuery={lastSearch} />
 
+        {/* Error Display */}
         {error && (
-          <div className="w-full max-w-4xl mx-auto mt-8">
-            <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-6 text-center">
-              <div className="text-red-400 mb-2">Oops, error</div>
-              <p className="text-red-300">{error}</p>
+          <div className="w-full max-w-3xl mx-auto mt-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-6 backdrop-blur-sm">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-semibold text-red-300 mb-1">Something went wrong</div>
+                  <p className="text-red-200 text-sm">{error}</p>
+                </div>
+              </div>
             </div>
           </div>
         )}
 
-        {!isLoading && results.length === 0 && !error && (
-          <div className="text-center mt-20">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-white/5 border border-white/10 mb-4">
-              <svg className="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        {/* Empty State */}
+        {!isLoading && results.length === 0 && !error && !isAnalyzing && (
+          <div className="text-center mt-24 animate-in fade-in duration-700">
+            <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-white/5 border border-white/10 mb-6">
+              <svg className="w-10 h-10 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  strokeWidth={2}
+                  strokeWidth={1.5}
                   d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
                 />
               </svg>
             </div>
-            <h3 className="text-gray-400 mb-2">Start discovering music</h3>
-            <p className="text-gray-600">Describe the vibe, mood, or type of music you're looking for</p>
+            <h3 className="text-xl font-semibold text-gray-200 mb-2">Start discovering music</h3>
+            <p className="text-gray-400 max-w-md mx-auto">
+              Describe the vibe, mood, or type of music you're looking for and let AI find the perfect tracks.
+            </p>
           </div>
         )}
 
+        {/* Debug JSON Toggle */}
         {rawResponse && (
-          <div className="w-full max-w-4xl mx-auto mt-10">
-            <div className="bg-white/5 border border-white/10 rounded-xl overflow-hidden">
-              <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
-                <span className="text-sm text-gray-300">Gemini JSON (raw API response)</span>
-                <span className="text-xs text-gray-500">debug</span>
+          <div className="w-full max-w-3xl mx-auto mt-10">
+            <button
+              onClick={() => setShowDebug(!showDebug)}
+              className="w-full flex items-center justify-between px-4 py-3 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 transition text-sm text-gray-300"
+            >
+              <span className="font-medium">Debug: API Response</span>
+              {showDebug ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </button>
+            {showDebug && (
+              <div className="mt-2 overflow-hidden rounded-xl border border-white/10 bg-slate-950 animate-in fade-in slide-in-from-top-2 duration-300">
+                <div className="px-4 py-2 border-b border-white/10 flex items-center justify-between">
+                  <span className="text-xs text-gray-400">JSON Response</span>
+                  <span className="text-xs text-gray-500 font-mono">developer mode</span>
+                </div>
+                <pre className="p-4 text-xs text-gray-300 overflow-auto max-h-96 whitespace-pre-wrap font-mono">
+                  {JSON.stringify(
+                    (rawResponse as any).ai_suggestions ?? (rawResponse as any).suggestions ?? rawResponse,
+                    null,
+                    2
+                  )}
+                </pre>
               </div>
-              <pre className="p-4 text-xs text-gray-300 overflow-auto max-h-80 whitespace-pre-wrap">
-                {JSON.stringify(
-                  (rawResponse as any).ai_suggestions ?? (rawResponse as any).suggestions ?? rawResponse,
-                  null,
-                  2
-                )}
-              </pre>
-            </div>
+            )}
           </div>
         )}
-      </div>
-      {historyPortalTarget &&
-        isHistoryOpen &&
-        createPortal(
-          <div
-            style={{
-              position: "fixed",
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              zIndex: 9999,
-              backgroundColor: "rgba(15, 15, 30, 0.85)",
-              backdropFilter: "blur(6px)",
-              WebkitBackdropFilter: "blur(6px)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "1.5rem",
-            }}
-            onClick={(e) => {
-              if (e.target === e.currentTarget) {
-                setIsHistoryOpen(false);
-              }
-            }}
-          >
-            <div className="w-full max-w-2xl rounded-2xl border border-white/20 bg-[#151529] shadow-2xl shadow-purple-900/40">
-              <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-gray-400">Your saved moods</p>
-                  <h3 className="text-xl text-white font-semibold">History</h3>
-                </div>
-                <button
-                  onClick={() => setIsHistoryOpen(false)}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/30 text-white hover:border-white hover:bg-white/10 transition"
-                  aria-label="Close history"
-                >
-                  <span className="text-lg leading-none text-white">&times;</span>
-                </button>
-              </div>
-              {!user ? (
-                <div className="px-6 py-10 text-center text-gray-300">
-                  {historyMessage || "Please sign in to view your saved history."}
-                </div>
-              ) : isHistoryLoading ? (
-                <div className="px-6 py-10 text-center text-gray-300">Loading history…</div>
-              ) : historyEntries.length === 0 ? (
-                <div className="px-6 py-10 text-center text-gray-400">
-                  No past requests yet. Run a search to start building history.
-                </div>
-              ) : (
-                <div className="max-h-[60vh] overflow-y-auto space-y-4 px-5 py-4">
-                  {historyMessage && (
-                    <div className="text-center text-xs text-red-300 mb-2">{historyMessage}</div>
-                  )}
-                  {historyEntries.map((entry) => (
-                    <button
-                      key={entry.id}
-                      type="button"
-                      onClick={() => handleHistorySelect(entry)}
-                      className="w-full text-left rounded-2xl border border-white/10 bg-white/5 px-5 py-4 hover:border-purple-400/40 hover:bg-white/10 transition flex items-center justify-between gap-4 shadow-inner shadow-black/20"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="text-white font-semibold break-words">{entry.lastSearchLabel}</p>
-                        <p className="text-xs text-gray-400">{new Date(entry.timestamp).toLocaleString()}</p>
-                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-400">
-                          {entry.emojis.length > 0 ? (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5">{entry.emojis.join(" ")}</span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-white/5 px-2 py-0.5">Text mood</span>
-                          )}
-                          <span className="text-gray-500">•</span>
-                          <span>{entry.results.length} song{entry.results.length === 1 ? "" : "s"}</span>
-                          <span className="text-gray-500">•</span>
-                          <span>{entry.songLimit} requested</span>
-                        </div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
+      </main>
+
+      {/* Auth Modal */}
+      <Modal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        title={authMode === "login" ? "Sign in" : "Register"}
+        subtitle={authMode === "login" ? "Welcome back" : "Create account"}
+      >
+        <div className="space-y-4">
+          <div>
+            <label htmlFor="email" className="block text-sm text-gray-300 mb-2">
+              Email
+            </label>
+            <input
+              id="email"
+              type="email"
+              placeholder="your@email.com"
+              autoComplete="email"
+              className="w-full rounded-xl bg-white/5 border border-white/20 px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/40 transition"
+              value={authEmail}
+              onChange={(e) => setAuthEmail(e.target.value)}
+            />
+          </div>
+          
+          <div>
+            <label htmlFor="password" className="block text-sm text-gray-300 mb-2">
+              Password
+            </label>
+            <input
+              id="password"
+              type="password"
+              placeholder="••••••••"
+              autoComplete={authMode === "login" ? "current-password" : "new-password"}
+              className="w-full rounded-xl bg-white/5 border border-white/20 px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/40 transition"
+              value={authPassword}
+              onChange={(e) => setAuthPassword(e.target.value)}
+            />
+          </div>
+          
+          {authMode === "register" && (
+            <div>
+              <label htmlFor="displayName" className="block text-sm text-gray-300 mb-2">
+                Display name <span className="text-gray-500">(optional)</span>
+              </label>
+              <input
+                id="displayName"
+                type="text"
+                placeholder="How should we call you?"
+                autoComplete="nickname"
+                className="w-full rounded-xl bg-white/5 border border-white/20 px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/40 transition"
+                value={authDisplayName}
+                onChange={(e) => setAuthDisplayName(e.target.value)}
+              />
             </div>
-          </div>,
-          historyPortalTarget,
+          )}
+
+          <Button
+            onClick={handleAuthSubmit}
+            disabled={isAuthLoading || !authEmail || !authPassword}
+            className="w-full mt-6 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 py-3 text-white font-semibold shadow-lg shadow-indigo-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition hover:from-indigo-600 hover:to-indigo-700"
+          >
+            {isAuthLoading ? "Please wait..." : authMode === "login" ? "Log in" : "Register"}
+          </Button>
+
+          <button
+            onClick={() => {
+              setAuthMode(authMode === "login" ? "register" : "login");
+              setAuthError(null);
+            }}
+            className="w-full text-sm text-gray-400 hover:text-white transition"
+          >
+            {authMode === "login" ? "Need an account? Register" : "Already have an account? Log in"}
+          </button>
+
+          {authError && (
+            <div className="mt-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20">
+              <p className="text-sm text-red-300 text-center">{authError}</p>
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      {/* History Modal */}
+      <Modal
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        title="History"
+        subtitle="Your saved moods"
+        maxWidth="2xl"
+      >
+        {!user ? (
+          <div className="py-10 text-center text-gray-300">
+            {historyMessage || "Please sign in to view your saved history."}
+          </div>
+        ) : isHistoryLoading ? (
+          <div className="py-10 flex items-center justify-center gap-3 text-gray-300">
+            <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            </svg>
+            <span>Loading history...</span>
+          </div>
+        ) : historyEntries.length === 0 ? (
+          <div className="py-10 text-center text-gray-400">
+            No past requests yet. Run a search to start building history.
+          </div>
+        ) : (
+          <div className="max-h-[60vh] overflow-y-auto space-y-3">
+            {historyMessage && (
+              <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-300 text-center mb-4">
+                {historyMessage}
+              </div>
+            )}
+            {historyEntries.map((entry) => (
+              <button
+                key={entry.id}
+                type="button"
+                onClick={() => handleHistorySelect(entry)}
+                className="w-full text-left rounded-2xl border border-white/10 bg-white/5 px-5 py-4 hover:border-indigo-400/40 hover:bg-white/10 transition-all group"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white font-semibold group-hover:text-indigo-300 transition-colors break-words">
+                      {entry.lastSearchLabel}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      {new Date(entry.timestamp).toLocaleString()}
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                      {entry.emojis.length > 0 ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1">
+                          {entry.emojis.join(" ")}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center rounded-full bg-white/5 border border-white/10 px-2.5 py-1 text-gray-400">
+                          Text mood
+                        </span>
+                      )}
+                      <span className="text-gray-500">•</span>
+                      <span className="text-gray-400">
+                        {entry.results.length} song{entry.results.length === 1 ? "" : "s"}
+                      </span>
+                      <span className="text-gray-500">•</span>
+                      <span className="text-gray-400">{entry.popularityLabel}</span>
+                    </div>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
         )}
+      </Modal>
     </div>
   );
 }

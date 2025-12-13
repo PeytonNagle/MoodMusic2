@@ -1,196 +1,122 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { X } from "lucide-react";
+
+const EMOJIS = [
+  { emoji: "😊", label: "calm" },
+  { emoji: "🎉", label: "party" },
+  { emoji: "😳", label: "surprised" },
+  { emoji: "🌧️", label: "rainy" },
+  { emoji: "💪", label: "energetic" },
+  { emoji: "🦁", label: "bold" },
+  { emoji: "☕", label: "chill" },
+  { emoji: "🌙", label: "night" },
+  { emoji: "🚗", label: "driving" },
+  { emoji: "📚", label: "study" },
+  { emoji: "🍷", label: "relaxed" },
+  { emoji: "🚶‍♂️", label: "walk" },
+  { emoji: "🌊", label: "waves" },
+  { emoji: "🎸", label: "rock" },
+  { emoji: "🎹", label: "piano" },
+  { emoji: "💜", label: "love" },
+];
 
 interface EmojiPickerProps {
   value: string[];
-  onChange: (next: string[]) => void;
+  onChange: (emojis: string[]) => void;
 }
 
-const BASE_EMOJIS = ["🙂", "😮", "😌", "🔥", "😴", "🎉", "😢", "❤️", "🤖", "☕", "🧠", "💪"];
-const MORE_EMOJIS = [
-  "😀",
-  "😊",
-  "😉",
-  "😭",
-  "😡",
-  "🤔",
-  "🤗",
-  "🤩",
-  "🥳",
-  "😎",
-  "😇",
-  "🤘",
-  "🎶",
-  "🎧",
-  "🎸",
-  "🎤",
-  "🥁",
-  "💃",
-  "🕺",
-  "🏃",
-  "☀️",
-  "🌙",
-  "🌧️",
-  "🌊",
-  "🏔️",
-  "🌅",
-  "🌃",
-  "🍃",
-  "🍂",
-  "🔥",
-  "💤",
-  "🧘",
-  "🏋️",
-  "🏄",
-  "🚴",
-  "☕",
-  "🥤",
-];
-const MAX_EMOJIS = 12;
-const ALL_EMOJIS = Array.from(new Set([...BASE_EMOJIS, ...MORE_EMOJIS]));
-
 export function EmojiPicker({ value, onChange }: EmojiPickerProps) {
-  const selectedSet = useMemo(() => new Set(value), [value]);
-  const [isExpanded, setIsExpanded] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const popoverRef = useRef<HTMLDivElement | null>(null);
-
-  const toggleEmoji = (emoji: string) => {
-    const isSelected = selectedSet.has(emoji);
-    if (isSelected) {
-      onChange(value.filter((e) => e !== emoji));
-      return;
-    }
-    if (value.length >= MAX_EMOJIS) return;
-    onChange([...value, emoji]);
-  };
-
-  const clearEmojis = () => {
-    if (value.length) {
-      onChange([]);
-    }
-  };
+  const [showAll, setShowAll] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(8);
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (
-        popoverRef.current &&
-        containerRef.current &&
-        !popoverRef.current.contains(target) &&
-        !containerRef.current.contains(target)
-      ) {
-        setIsExpanded(false);
+    const updateCount = () => {
+      const w = window.innerWidth;
+      if (w < 640) {
+        setVisibleCount(6);
+      } else if (w < 1024) {
+        setVisibleCount(8);
+      } else {
+        setVisibleCount(10);
       }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    updateCount();
+    window.addEventListener("resize", updateCount);
+    return () => window.removeEventListener("resize", updateCount);
   }, []);
 
-  const renderEmojiButton = (emoji: string) => {
-    const isSelected = selectedSet.has(emoji);
-    return (
-      <button
-        key={emoji}
-        type="button"
-        onClick={() => toggleEmoji(emoji)}
-        aria-pressed={isSelected}
-        className={`w-10 h-10 rounded-xl border transition-all focus:outline-none focus:ring-2 focus:ring-purple-400 focus:ring-offset-2 focus:ring-offset-transparent flex items-center justify-center ${
-          isSelected
-            ? "bg-white text-black border-white shadow-[0_0_18px_rgba(255,255,255,0.45)] hover:bg-white active:bg-white"
-            : "bg-white/5 border-white/10 hover:border-purple-400/40"
-        }`}
-        style={
-          isSelected
-            ? { backgroundColor: "#ffffff", color: "#0f172a" }
-            : undefined
-        }
-      >
-        <span className={`text-xl leading-none block ${isSelected ? "text-black" : ""}`}>{emoji}</span>
-      </button>
-    );
+  const visibleEmojis = useMemo(() => EMOJIS.slice(0, visibleCount), [visibleCount]);
+
+  const handleToggle = (emoji: string) => {
+    if (value.includes(emoji)) {
+      onChange(value.filter((e) => e !== emoji));
+    } else {
+      onChange([...value, emoji]);
+    }
   };
 
+  const renderEmojiButton = (emoji: string, label: string, sizeClasses = "w-12 h-12 sm:w-14 sm:h-14") => (
+    <button
+      key={emoji}
+      onClick={() => handleToggle(emoji)}
+      className={`${sizeClasses} rounded-xl transition-all duration-200 hover:scale-105 ${
+        value.includes(emoji)
+          ? "bg-indigo-500/20 ring-2 ring-indigo-500 shadow-lg shadow-indigo-500/30"
+          : "bg-white/5 hover:bg-white/10 border border-white/10"
+      }`}
+      title={label}
+    >
+      <span className="text-lg sm:text-xl">{emoji}</span>
+    </button>
+  );
+
   return (
-    <div className="flex flex-col gap-3 relative w-full" ref={containerRef}>
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between text-sm text-gray-400">
-        <span className="leading-snug">Tag the vibe with emojis (optional)</span>
-        <button
-          type="button"
-          onClick={clearEmojis}
-          className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
-          disabled={!value.length}
-        >
-          Clear
-        </button>
-      </div>
-      <div
-        className="min-h-[40px] flex flex-wrap gap-1.5 rounded-xl bg-white/5 border border-white/10 px-2 py-2"
-        style={{ columnGap: "0.4rem", rowGap: "0.4rem", maxWidth: "100%" }}
-      >
-        {value.length === 0 ? (
-          <span className="text-xs text-gray-500">No emojis selected</span>
-        ) : (
-          value.map((emoji) => (
+    <div className="space-y-4">
+      {value.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {value.map((emoji) => (
             <button
               key={emoji}
-              type="button"
-              onClick={() => toggleEmoji(emoji)}
-              className="px-1.5 py-0.5 rounded-full bg-white text-xs text-black shadow flex items-center justify-center"
+              onClick={() => handleToggle(emoji)}
+              className="group inline-flex items-center gap-1.5 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3 py-1.5 text-sm transition-all hover:border-indigo-500/50 hover:bg-indigo-500/20"
             >
-              {emoji}
+              <span>{emoji}</span>
+              <X className="h-3 w-3 text-indigo-300 opacity-0 transition-opacity group-hover:opacity-100" />
             </button>
-          ))
-        )}
-      </div>
-      <div className="flex">
+          ))}
+        </div>
+      )}
+
+      <div className="grid grid-cols-10 sm:grid-cols-10 gap-1 sm:gap-1.5">
+        {visibleEmojis.map(({ emoji, label }) => renderEmojiButton(emoji, label))}
         <button
           type="button"
-          aria-haspopup="dialog"
-          aria-expanded={isExpanded}
-          onClick={() => setIsExpanded((prev) => !prev)}
-          className="w-full sm:w-auto rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm text-gray-200 hover:text-white hover:border-purple-300 transition-all focus:outline-none focus:ring-2 focus:ring-purple-400 focus:ring-offset-2 focus:ring-offset-transparent"
+          onClick={() => setShowAll(true)}
+          className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl border border-dashed border-indigo-400/60 bg-white/5 text-indigo-200 font-bold text-lg hover:bg-white/10 transition"
+          title="See all emojis"
         >
-          {isExpanded ? "Hide emoji palette" : "Choose emojis"}
+          +
         </button>
       </div>
-      {isExpanded && (
-        <div
-          ref={popoverRef}
-          className="absolute z-50 mt-2 left-1/2 sm:left-auto sm:right-0 top-full -translate-x-1/2 sm:translate-x-0 rounded-2xl shadow-2xl overflow-hidden"
-          style={{
-            backgroundColor: "#050914",
-            width: "min(260px, calc(100vw - 2rem))",
-            maxWidth: "320px",
-            boxShadow: "0 18px 60px rgba(0,0,0,0.55)",
-            opacity: 1,
-            backdropFilter: "none",
-            border: "1px solid rgba(255,255,255,0.08)",
-            zIndex: 9999,
-            pointerEvents: "auto",
-          }}
-        >
-          <div className="flex items-center justify-between mb-3 px-3 pt-3">
-            <span className="text-sm text-gray-300">More emojis</span>
-            <button
-              type="button"
-              onClick={() => setIsExpanded(false)}
-              className="text-xs text-gray-400 hover:text-white px-2"
-              aria-label="Close emoji picker"
-            >
-              X
-            </button>
-          </div>
+
+      {showAll && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4" onClick={() => setShowAll(false)}>
           <div
-            className="max-h-48 overflow-y-auto pr-2 pb-3 pl-3"
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(48px, 1fr))",
-              gap: "0.45rem",
-              justifyItems: "center",
-              alignItems: "center",
-            }}
+            className="w-full max-w-2xl rounded-2xl border border-white/15 bg-[#0f1224] p-5 shadow-2xl shadow-black/40"
+            onClick={(e) => e.stopPropagation()}
           >
-            {ALL_EMOJIS.map((emoji) => renderEmojiButton(emoji))}
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-white font-semibold">All emojis</h3>
+              <button
+                onClick={() => setShowAll(false)}
+                className="rounded-full border border-white/20 text-white px-3 py-1 text-sm hover:bg-white/10 transition"
+              >
+                Close
+              </button>
+            </div>
+            <div className="grid grid-cols-5 sm:grid-cols-6 gap-2">
+              {EMOJIS.map(({ emoji, label }) => renderEmojiButton(emoji, label, "w-12 h-12"))}
+            </div>
           </div>
         </div>
       )}
