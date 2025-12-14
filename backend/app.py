@@ -14,6 +14,17 @@ import json
 from werkzeug.security import generate_password_hash, check_password_hash
 from psycopg2 import errors
 from db_queries import create_user, get_user_by_email
+from services.requests_utils import (
+    ValidationError,
+    compute_first_request_size,
+    compute_second_request_size,
+    normalize_limit,
+    parse_emojis,
+    parse_query,
+    parse_user_id,
+    require_json_body,
+    require_query_or_emojis,
+)
 
 
 
@@ -193,6 +204,80 @@ def filter_by_popularity_with_seen(songs, min_popularity, max_popularity, seen_k
         filtered.append(song)
     return filtered
 
+
+def generate_recommendations(query, emojis, limit, analysis, popularity_label, min_popularity, max_popularity):
+    """
+    Shared recommendation flow for search and recommend endpoints.
+    Attempts up to 2 Gemini calls with consistent sizing and popularity filtering.
+    """
+    enriched_songs = []
+    enriched_seen = set()
+    all_requested_songs = []
+    max_attempts = 2
+
+    def request_and_enrich(num_songs):
+        num_to_request = max(1, int(num_songs))
+        recommendations = gemini_service.recommend_songs(
+            query,
+            analysis,
+            num_to_request,
+            emojis,
+            min_popularity=min_popularity,
+            popularity_label=popularity_label,
+        )
+        songs_from_ai = recommendations.get('songs', []) if isinstance(recommendations, dict) else recommendations
+        if not songs_from_ai:
+            return []
+
+        new_songs = []
+        for song in songs_from_ai:
+            song_key = f"{song.get('title', '').lower()}|{song.get('artist', '').lower()}"
+            if song_key not in all_requested_songs:
+                new_songs.append(song)
+                all_requested_songs.append(song_key)
+
+        if not new_songs:
+            return []
+
+        logger.info(f"Enriching {len(new_songs)} new songs with Spotify data...")
+        enriched_batch = spotify_service.enrich_songs(new_songs, min_popularity=min_popularity)
+        deduped_batch = []
+        add_unique_songs(deduped_batch, enriched_batch, enriched_seen)
+        return deduped_batch
+
+    attempt = 0
+    first_num_songs = compute_first_request_size(limit, popularity_label=popularity_label)
+    attempt += 1
+    logger.info(f"Attempt {attempt}: Requesting {first_num_songs} songs from Gemini (target {limit})...")
+    enriched_songs.extend(request_and_enrich(first_num_songs))
+
+    filtered_count = len(filter_by_popularity(enriched_songs, min_popularity, max_popularity))
+    if attempt < max_attempts and filtered_count < max(1, limit // 2):
+        remaining_needed = max(limit - filtered_count, 1)
+        second_num_songs = compute_second_request_size(remaining_needed)
+        attempt += 1
+        logger.info(f"Attempt {attempt}: Requesting {second_num_songs} songs from Gemini (need ~{remaining_needed} more after filtering)...")
+        enriched_songs.extend(request_and_enrich(second_num_songs))
+
+    filtered = filter_by_popularity_with_seen(enriched_songs, min_popularity, max_popularity, set())
+    filtered_seen = {k for k in (_song_identity(s) for s in filtered) if k}
+    attempts_exhausted = attempt >= max_attempts or len(filtered) < limit
+    if attempts_exhausted and len(filtered) < limit and enriched_songs:
+        logger.warning("Popularity filter removed some/all songs; padding with unfiltered results (final attempt).")
+        padded = list(filtered)
+        for s in enriched_songs:
+            if len(padded) >= limit:
+                break
+            add_unique_songs(padded, [s], filtered_seen)
+        filtered = padded
+    final_songs = filtered[:limit]
+
+    if len(final_songs) < limit:
+        logger.warning(f"Could only find {len(final_songs)} songs meeting popularity criteria (requested {limit})")
+
+    logger.info(f"Final result: {len(final_songs)} songs")
+    return final_songs
+
 @app.route('/api/search', methods=['POST'])
 def search_music():
     """
@@ -225,70 +310,15 @@ def search_music():
     }
     """
     try:
-        # Validate request
-        if not request.is_json:
-            return jsonify({
-                'success': False,
-                'songs': [],
-                'error': 'Request must be JSON'
-            }), 400
-        
-        data = request.get_json()
-        
-        if not data:
-            return jsonify({
-                'success': False,
-                'songs': [],
-                'error': 'Request body is missing'
-            }), 400
-
-        query = str(data.get('query', '') or '').strip()
-        limit = data.get('limit', 10)
+        data = require_json_body(request)
+        query = parse_query(data)
         popularity_ctx = resolve_popularity_constraints(data)
         popularity_label = popularity_ctx["popularity_label"]
         min_popularity = popularity_ctx["min_popularity"]
         max_popularity = popularity_ctx["max_popularity"]
-        emojis_raw = data.get('emojis', [])
-
-        # Validate emojis: must be a list of strings, trimmed, deduped, and capped
-        emojis = []
-        if emojis_raw is not None:
-            if not isinstance(emojis_raw, list):
-                return jsonify({
-                    'success': False,
-                    'songs': [],
-                    'error': 'emojis must be an array of strings'
-                }), 400
-
-            seen = set()
-            for emoji in emojis_raw:
-                if not isinstance(emoji, str):
-                    return jsonify({
-                        'success': False,
-                        'songs': [],
-                        'error': 'emojis must be strings'
-                    }), 400
-                trimmed = emoji.strip()
-                if trimmed and trimmed not in seen:
-                    emojis.append(trimmed)
-                    seen.add(trimmed)
-                if len(emojis) >= 12:
-                    break
-
-        if not query and not emojis:
-            return jsonify({
-                'success': False,
-                'songs': [],
-                'error': 'Please provide a search query or select emojis'
-            }), 400
-        
-        # Validate limit (10-50)
-        try:
-            limit = int(limit)
-            if limit < 10 or limit > 50:
-                limit = 10
-        except (ValueError, TypeError):
-            limit = 10
+        emojis = parse_emojis(data.get('emojis'))
+        limit = normalize_limit(data.get('limit', 10))
+        require_query_or_emojis(query, emojis)
 
         logger.info(
             f"Processing search query: '{query}' with limit: {limit}, popularity_label: {popularity_label}, "
@@ -315,73 +345,16 @@ def search_music():
         analysis_result = gemini_service.analyze_mood(query, emojis)
         analysis = analysis_result.get('analysis', {}) if isinstance(analysis_result, dict) else {}
 
-        # Step 2: Get song recommendations using the analysis (fast: max 2 Gemini calls)
-        enriched_songs = []
-        enriched_seen = set()
-        all_requested_songs = []  # Track all songs we've requested to avoid duplicates
-        max_attempts = 2
+        enriched_songs = generate_recommendations(
+            query,
+            emojis,
+            limit,
+            analysis,
+            popularity_label,
+            min_popularity,
+            max_popularity,
+        )
 
-        def request_and_enrich(num_songs):
-            recommendations = gemini_service.recommend_songs(
-                query,
-                analysis,
-                num_songs,
-                emojis,
-                min_popularity=min_popularity,
-                popularity_label=popularity_label,
-            )
-            songs_from_ai = recommendations.get('songs', []) if isinstance(recommendations, dict) else recommendations
-            if not songs_from_ai:
-                return []
-
-            new_songs = []
-            for song in songs_from_ai:
-                song_key = f"{song.get('title', '').lower()}|{song.get('artist', '').lower()}"
-                if song_key not in all_requested_songs:
-                    new_songs.append(song)
-                    all_requested_songs.append(song_key)
-            
-            if not new_songs:
-                return []
-
-            logger.info(f"Enriching {len(new_songs)} new songs with Spotify data...")
-            enriched_batch = spotify_service.enrich_songs(new_songs, min_popularity=min_popularity)
-            deduped_batch = []
-            add_unique_songs(deduped_batch, enriched_batch, enriched_seen)
-            return deduped_batch
-
-        attempt = 0
-        first_num_songs = min(limit * 1.5, 30)
-        attempt += 1
-        logger.info(f"Attempt {attempt}: Requesting {first_num_songs} songs from Gemini (target {limit})...")
-        enriched_songs.extend(request_and_enrich(first_num_songs))
-
-        filtered_count = len(filter_by_popularity(enriched_songs, min_popularity, max_popularity))
-        if attempt < max_attempts and filtered_count < max(1, limit // 2):
-            remaining_needed = limit - filtered_count
-            second_num_songs = min(max(remaining_needed * 2, 5), 50)
-            attempt += 1
-            logger.info(f"Attempt {attempt}: Requesting {second_num_songs} songs from Gemini (need ~{remaining_needed} more after filtering)...")
-            enriched_songs.extend(request_and_enrich(second_num_songs))
-
-        filtered = filter_by_popularity_with_seen(enriched_songs, min_popularity, max_popularity, set())
-        filtered_seen = {k for k in (_song_identity(s) for s in filtered) if k}
-        attempts_exhausted = attempt >= max_attempts or len(filtered) < limit
-        if attempts_exhausted and len(filtered) < limit and enriched_songs:
-            logger.warning("Popularity filter removed some/all songs; padding with unfiltered results (final attempt).")
-            padded = list(filtered)
-            for s in enriched_songs:
-                if len(padded) >= limit:
-                    break
-                add_unique_songs(padded, [s], filtered_seen)
-            filtered = padded
-        enriched_songs = filtered[:limit]
-        
-        if len(enriched_songs) < limit:
-            logger.warning(f"Could only find {len(enriched_songs)} songs meeting popularity criteria (requested {limit})")
-        
-        logger.info(f"Final result: {len(enriched_songs)} songs")
-        
         return jsonify({
             'success': True,
             'songs': enriched_songs,
@@ -389,6 +362,12 @@ def search_music():
             'error': None
         })
         
+    except ValidationError as ve:
+        return jsonify({
+            'success': False,
+            'songs': [],
+            'error': ve.message
+        }), ve.status_code
     except Exception as e:
         logger.exception("Error processing search request")
         return jsonify({
@@ -401,33 +380,11 @@ def search_music():
 def analyze():
     """Fast mood/constraint analysis endpoint."""
     try:
-        if not request.is_json:
-            return jsonify({'success': False, 'analysis': {}, 'error': 'Request must be JSON'}), 400
+        data = require_json_body(request)
+        query = parse_query(data)
+        emojis = parse_emojis(data.get('emojis'))
 
-        data = request.get_json()
-        if not data:
-            return jsonify({'success': False, 'analysis': {}, 'error': 'Request body is missing'}), 400
-
-        query = str(data.get('query', '') or '').strip()
-        emojis_raw = data.get('emojis', [])
-
-        emojis = []
-        if emojis_raw is not None:
-            if not isinstance(emojis_raw, list):
-                return jsonify({'success': False, 'analysis': {}, 'error': 'emojis must be an array of strings'}), 400
-            seen = set()
-            for emoji in emojis_raw:
-                if not isinstance(emoji, str):
-                    return jsonify({'success': False, 'analysis': {}, 'error': 'emojis must be strings'}), 400
-                trimmed = emoji.strip()
-                if trimmed and trimmed not in seen:
-                    emojis.append(trimmed)
-                    seen.add(trimmed)
-                if len(emojis) >= 12:
-                    break
-
-        if not query and not emojis:
-            return jsonify({'success': False, 'analysis': {}, 'error': 'Please provide a search query or select emojis'}), 400
+        require_query_or_emojis(query, emojis)
 
         if not gemini_service:
             return jsonify({'success': False, 'analysis': {}, 'error': 'Gemini service not configured. Please add GEMINI_API_KEY to .env file.'}), 500
@@ -438,6 +395,8 @@ def analyze():
 
         return jsonify({'success': True, 'analysis': analysis, 'error': None})
 
+    except ValidationError as ve:
+        return jsonify({'success': False, 'analysis': {}, 'error': ve.message}), ve.status_code
     except Exception as e:
         logger.exception("Error processing analyze request")
         return jsonify({'success': False, 'analysis': {}, 'error': f'Internal server error: {str(e)}'}), 500
@@ -446,52 +405,18 @@ def analyze():
 def recommend():
     """Recommend songs using provided analysis (or auto-analyze if missing)."""
     try:
-        if not request.is_json:
-            return jsonify({'success': False, 'songs': [], 'analysis': {}, 'error': 'Request must be JSON'}), 400
-
-        data = request.get_json()
-        if not data:
-            return jsonify({'success': False, 'songs': [], 'analysis': {}, 'error': 'Request body is missing'}), 400
-
-        query = str(data.get('query', '') or '').strip()
-        limit = data.get('limit', 10)
+        data = require_json_body(request)
+        query = parse_query(data)
+        limit = normalize_limit(data.get('limit', 10))
         popularity_ctx = resolve_popularity_constraints(data)
         popularity_label = popularity_ctx["popularity_label"]
         min_popularity = popularity_ctx["min_popularity"]
         max_popularity = popularity_ctx["max_popularity"]
         analysis_payload = data.get('analysis', {}) or {}
-        user_id_raw = data.get('user_id')
-        try:
-            user_id = int(user_id_raw)
-        except (ValueError, TypeError):
-            user_id = None
-        emojis_raw = data.get('emojis', [])
+        user_id = parse_user_id(data.get('user_id'))
+        emojis = parse_emojis(data.get('emojis'))
 
-        emojis = []
-        if emojis_raw is not None:
-            if not isinstance(emojis_raw, list):
-                return jsonify({'success': False, 'songs': [], 'analysis': {}, 'error': 'emojis must be an array of strings'}), 400
-            seen = set()
-            for emoji in emojis_raw:
-                if not isinstance(emoji, str):
-                    return jsonify({'success': False, 'songs': [], 'analysis': {}, 'error': 'emojis must be strings'}), 400
-                trimmed = emoji.strip()
-                if trimmed and trimmed not in seen:
-                    emojis.append(trimmed)
-                    seen.add(trimmed)
-                if len(emojis) >= 12:
-                    break
-
-        if not query and not emojis:
-            return jsonify({'success': False, 'songs': [], 'analysis': {}, 'error': 'Please provide a search query or select emojis'}), 400
-
-        # Validate limit (10-50)
-        try:
-            limit = int(limit)
-            if limit < 10 or limit > 50:
-                limit = 10
-        except (ValueError, TypeError):
-            limit = 10
+        require_query_or_emojis(query, emojis)
 
         if not gemini_service:
             return jsonify({'success': False, 'songs': [], 'analysis': {}, 'error': 'Gemini service not configured. Please add GEMINI_API_KEY to .env file.'}), 500
@@ -504,78 +429,15 @@ def recommend():
             analysis_result = gemini_service.analyze_mood(query, emojis)
             analysis = analysis_result.get('analysis', {}) if isinstance(analysis_result, dict) else {}
 
-        # Keep requesting until we have enough songs that meet popularity criteria (fast: max 2 Gemini calls)
-        enriched_songs = []
-        enriched_seen = set()
-        all_requested_songs = []  # Track all songs we've requested to avoid duplicates
-        max_attempts = 2
-
-        def request_and_enrich(num_songs):
-            recommendations = gemini_service.recommend_songs(
-                query,
-                analysis,
-                num_songs,
-                emojis,
-                min_popularity=min_popularity,
-                popularity_label=popularity_label,
-            )
-            songs_from_ai = recommendations.get('songs', []) if isinstance(recommendations, dict) else recommendations
-            if not songs_from_ai:
-                return []
-
-            new_songs = []
-            for song in songs_from_ai:
-                song_key = f"{song.get('title', '').lower()}|{song.get('artist', '').lower()}"
-                if song_key not in all_requested_songs:
-                    new_songs.append(song)
-                    all_requested_songs.append(song_key)
-            
-            if not new_songs:
-                return []
-
-            logger.info(f"Enriching {len(new_songs)} new songs with Spotify data...")
-            enriched_batch = spotify_service.enrich_songs(new_songs, min_popularity=min_popularity)
-            deduped_batch = []
-            add_unique_songs(deduped_batch, enriched_batch, enriched_seen)
-            return deduped_batch
-
-        attempt = 0
-        # Request sizing: smaller for high-popularity tiers, larger for low-popularity tiers
-        if popularity_label in ("Global / Superstar", "Hot / Established"):
-            first_num_songs = min(int(limit * 1.3), 50)
-        elif popularity_label in ("Growing", "Rising", "Under the Radar"):
-            first_num_songs = min(limit * 2, 50)
-        elif popularity_label == "Any":
-            first_num_songs = limit
-        else:
-            first_num_songs = min(limit * 1.6, 50)
-        attempt += 1
-        logger.info(f"Attempt {attempt}: Requesting {first_num_songs} songs from Gemini (target {limit})...")
-        enriched_songs.extend(request_and_enrich(first_num_songs))
-
-        filtered_count = len(filter_by_popularity(enriched_songs, min_popularity, max_popularity))
-        if attempt < max_attempts and filtered_count < max(1, limit // 2):
-            remaining_needed = limit - filtered_count
-            second_num_songs = min(remaining_needed * 2, 50)
-            attempt += 1
-            logger.info(f"Attempt {attempt}: Requesting {second_num_songs} songs from Gemini (need ~{remaining_needed} more after filtering)...")
-            enriched_songs.extend(request_and_enrich(second_num_songs))
-
-        filtered = filter_by_popularity_with_seen(enriched_songs, min_popularity, max_popularity, set())
-        filtered_seen = {k for k in (_song_identity(s) for s in filtered) if k}
-        attempts_exhausted = attempt >= max_attempts or len(filtered) < limit
-        if attempts_exhausted and len(filtered) < limit and enriched_songs:
-            logger.warning("Popularity filter removed some/all songs; padding with unfiltered results (final attempt).")
-            padded = list(filtered)
-            for s in enriched_songs:
-                if len(padded) >= limit:
-                    break
-                add_unique_songs(padded, [s], filtered_seen)
-            filtered = padded[:limit]
-        enriched_songs = filtered[:limit]
-        
-        if len(enriched_songs) < limit:
-            logger.warning(f"Could only find {len(enriched_songs)} songs meeting popularity criteria (requested {limit})")
+        enriched_songs = generate_recommendations(
+            query,
+            emojis,
+            limit,
+            analysis,
+            popularity_label,
+            min_popularity,
+            max_popularity,
+        )
 
         # --- ASYNC SAVE REQUEST + SONGS TO DATABASE ---
         try:
@@ -592,6 +454,8 @@ def recommend():
 
         return jsonify({'success': True, 'songs': enriched_songs, 'analysis': analysis, 'error': None})
 
+    except ValidationError as ve:
+        return jsonify({'success': False, 'songs': [], 'analysis': {}, 'error': ve.message}), ve.status_code
     except Exception as e:
         logger.exception("Error processing recommend request")
         return jsonify({'success': False, 'songs': [], 'analysis': {}, 'error': f'Internal server error: {str(e)}'}), 500
