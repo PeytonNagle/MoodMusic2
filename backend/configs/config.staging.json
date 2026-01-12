@@ -1,0 +1,17 @@
+{
+  "environment": "staging",
+  "flask": {
+    "debug": false
+  },
+  "database": {
+    "save_queue": {
+      "enabled": true,
+      "max_size": 100
+    }
+  },
+  "gemini": {
+    "temperatures": {
+      "recommendations_standard": 0.75
+    }
+  }
+}

@@ -37,6 +37,10 @@ tmp/
 *.pem
 secrets.json
 
+# Local config overrides (environment-specific)
+backend/configs/config.local.json
+backend/configs/config.*.local.json
+
 # Large data / media / uploads (don't commit large binary assets)
 data/
 datasets/

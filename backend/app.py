@@ -38,7 +38,7 @@ app = Flask(__name__)
 CORS(app)  # Enable CORS for frontend
 
 # Background queue for async DB saves
-SAVE_QUEUE: "queue.Queue[dict]" = queue.Queue(maxsize=100)
+SAVE_QUEUE: "queue.Queue[dict]" = queue.Queue(maxsize=Config.save_queue_max_size())
 
 
 def _save_worker():
@@ -49,16 +49,24 @@ def _save_worker():
             SAVE_QUEUE.task_done()
             break
         try:
-            request_id = save_user_request(
-                job["query"],
-                job.get("emojis"),
-                job["limit"],
-                job["analysis"],
-                job.get("user_id"),
-            )
-            for i, song in enumerate(job["songs"]):
-                save_recommended_song(request_id, i + 1, song, job.get("user_id"))
-            logger.info(f"Background save complete (request_id={request_id}, songs={len(job['songs'])})")
+            request_id = None
+            # Only save requests if enabled in config
+            if Config.save_requests_enabled():
+                request_id = save_user_request(
+                    job["query"],
+                    job.get("emojis"),
+                    job["limit"],
+                    job["analysis"],
+                    job.get("user_id"),
+                )
+
+            # Only save songs if enabled and we have a request_id
+            if Config.save_songs_enabled() and request_id:
+                for i, song in enumerate(job["songs"]):
+                    save_recommended_song(request_id, i + 1, song, job.get("user_id"))
+
+            if request_id:
+                logger.info(f"Background save complete (request_id={request_id}, songs={len(job['songs'])})")
         except Exception:
             logger.exception("Background save failed")
         finally:
@@ -72,12 +80,12 @@ SAVE_WORKER.start()
 if not Config.validate_config():
     logger.warning("Some configuration variables are missing. Please check your .env file.")
 
-# Initialize services
-gemini_service = GeminiService(Config.GEMINI_API_KEY) if Config.GEMINI_API_KEY else None
-spotify_service = SpotifyService(Config.SPOTIPY_CLIENT_ID, Config.SPOTIPY_CLIENT_SECRET) if Config.SPOTIPY_CLIENT_ID and Config.SPOTIPY_CLIENT_SECRET else None
+# Initialize services with config injection
+gemini_service = GeminiService(Config.GEMINI_API_KEY, Config._config_data.get('gemini')) if Config.GEMINI_API_KEY else None
+spotify_service = SpotifyService(Config.SPOTIPY_CLIENT_ID, Config.SPOTIPY_CLIENT_SECRET, Config._config_data.get('spotify')) if Config.SPOTIPY_CLIENT_ID and Config.SPOTIPY_CLIENT_SECRET else None
 
 # Popularity categories (label -> range) for filtering and Gemini hints
-POPULARITY_RANGES = {
+POPULARITY_RANGES = Config.get('popularity.ranges', {
     "Any": None,
     "Global / Superstar": (90, 100),
     "Hot / Established": (75, 89),
@@ -85,13 +93,13 @@ POPULARITY_RANGES = {
     "Growing": (25, 49),
     "Rising": (15, 24),
     "Under the Radar": (0, 14),
-}
-POPULARITY_TOLERANCE = 5
-POPULARITY_EXTRA_TOLERANCE = {
+})
+POPULARITY_TOLERANCE = Config.get('popularity.base_tolerance', 5)
+POPULARITY_EXTRA_TOLERANCE = Config.get('popularity.extra_tolerance', {
     "Growing": 10,
     "Rising": 12,
     "Under the Radar": 15,
-}
+})
 
 
 def resolve_popularity_constraints(data):
@@ -213,7 +221,7 @@ def generate_recommendations(query, emojis, limit, analysis, popularity_label, m
     enriched_songs = []
     enriched_seen = set()
     all_requested_songs = []
-    max_attempts = 2
+    max_attempts = Config.get('request_handling.max_recommendation_attempts', 2)
 
     def request_and_enrich(num_songs):
         num_to_request = max(1, int(num_songs))
@@ -252,7 +260,8 @@ def generate_recommendations(query, emojis, limit, analysis, popularity_label, m
     enriched_songs.extend(request_and_enrich(first_num_songs))
 
     filtered_count = len(filter_by_popularity(enriched_songs, min_popularity, max_popularity))
-    if attempt < max_attempts and filtered_count < max(1, limit // 2):
+    threshold_ratio = Config.get('popularity.minimum_filtered_threshold_ratio', 0.5)
+    if attempt < max_attempts and filtered_count < max(1, int(limit * threshold_ratio)):
         remaining_needed = max(limit - filtered_count, 1)
         second_num_songs = compute_second_request_size(remaining_needed)
         attempt += 1
@@ -440,17 +449,30 @@ def recommend():
         )
 
         # --- ASYNC SAVE REQUEST + SONGS TO DATABASE ---
-        try:
-            SAVE_QUEUE.put_nowait({
+        if Config.save_queue_enabled():
+            job_data = {
                 "query": query,
                 "emojis": emojis,
                 "limit": limit,
                 "analysis": analysis,
                 "songs": enriched_songs,
                 "user_id": user_id,
-            })
-        except queue.Full:
-            logger.warning("Save queue is full; skipping async DB save for this request.")
+            }
+
+            behavior = Config.save_queue_behavior()
+            try:
+                if behavior == 'skip':
+                    SAVE_QUEUE.put_nowait(job_data)
+                elif behavior == 'block':
+                    SAVE_QUEUE.put(job_data, block=True, timeout=5)
+                else:  # 'error'
+                    SAVE_QUEUE.put_nowait(job_data)
+            except queue.Full:
+                if behavior == 'error':
+                    logger.error("Save queue is full; cannot save request")
+                    # Could return error response here if needed
+                else:
+                    logger.warning("Save queue is full; skipping async DB save for this request.")
 
         return jsonify({'success': True, 'songs': enriched_songs, 'analysis': analysis, 'error': None})
 
@@ -661,12 +683,12 @@ def fetch_user_history_records(user_id: int, limit: int = 20):
 def get_user_history(user_id):
     if user_id <= 0:
         return jsonify({"success": False, "history": [], "error": "Invalid user id"}), 400
-    limit_param = request.args.get("limit", 20)
+    limit_param = request.args.get("limit", Config.get('database.history.default_limit', 20))
     try:
         limit = int(limit_param)
     except (ValueError, TypeError):
-        limit = 20
-    limit = max(1, min(limit, 50))
+        limit = Config.get('database.history.default_limit', 20)
+    limit = max(1, min(limit, Config.get('database.history.max_limit', 50)))
 
     try:
         history_records = fetch_user_history_records(user_id, limit)
@@ -766,4 +788,8 @@ def save_recommended_song(request_id, position, song, user_id=None):
 
 if __name__ == '__main__':
     logger.info("Starting Text-to-Spotify API server...")
-    app.run(debug=Config.DEBUG, host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
+    app.run(
+        debug=Config.DEBUG,
+        host=Config.get('flask.host', '0.0.0.0'),
+        port=Config.get('flask.port', int(os.getenv('PORT', 5000)))
+    )

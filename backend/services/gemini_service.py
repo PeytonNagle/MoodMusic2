@@ -10,13 +10,15 @@ logger = logging.getLogger(__name__)
 class GeminiService:
     """Service for interacting with Google Gemini via OpenAI-compatible API"""
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, config: Optional[Dict[str, Any]] = None):
         """Initialize OpenAI client pointed at Gemini's compatible endpoint"""
         # Gemini OpenAI-compatible endpoint (v1beta)
         self.client = openai.OpenAI(
             api_key=api_key,
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
         )
+        # Store config, fall back to empty dict if not provided
+        self.config = config or {}
 
     def analyze_mood(
         self,
@@ -50,7 +52,7 @@ class GeminiService:
 
             def _run_analysis(max_tokens: int):
                 return self.client.chat.completions.create(
-                    model=(model or "gemini-2.5-flash"),
+                    model=(model or self.config.get('model', 'gemini-2.5-flash')),
                     messages=[
                         {
                             "role": "system",
@@ -58,18 +60,18 @@ class GeminiService:
                         },
                         {"role": "user", "content": prompt},
                     ],
-                    temperature=0.4,
+                    temperature=self.config.get('temperatures', {}).get('analysis', 0.4),
                     max_tokens=max_tokens,
                     response_format={"type": "json_object"},
                 )
 
-            response = _run_analysis(512)
+            response = _run_analysis(self.config.get('token_limits', {}).get('analysis_initial', 512))
             choice = response.choices[0]
             content = choice.message.content
 
             if content is None or choice.finish_reason == "length":
                 logger.info("Gemini analysis retry triggered (content missing or length finish).")
-                response = _run_analysis(1024)
+                response = _run_analysis(self.config.get('token_limits', {}).get('analysis_retry', 1024))
                 choice = response.choices[0]
                 content = choice.message.content
 
@@ -137,18 +139,21 @@ class GeminiService:
             """
 
             # Scale token budget to requested song count; lean higher to reduce truncation
-            base_tokens = 2000
-            per_song_tokens = 160
-            initial_tokens = min(base_tokens + num_songs * per_song_tokens, token_cap)
+            base_tokens = self.config.get('token_limits', {}).get('recommendations_base', 2000)
+            per_song_tokens = self.config.get('token_limits', {}).get('recommendations_per_song', 160)
+            recommendations_cap = self.config.get('token_limits', {}).get('recommendations_cap', token_cap)
+            initial_tokens = min(base_tokens + num_songs * per_song_tokens, recommendations_cap)
             current_tokens = initial_tokens
 
             # Slightly higher temperature for lower popularity bands to encourage variety
             low_pop_labels = {"Growing", "Rising", "Under the Radar"}
-            temperature = 0.9 if popularity_label in low_pop_labels else 0.8
+            temp_low = self.config.get('temperatures', {}).get('recommendations_low_popularity', 0.9)
+            temp_standard = self.config.get('temperatures', {}).get('recommendations_standard', 0.8)
+            temperature = temp_low if popularity_label in low_pop_labels else temp_standard
 
             def _run_recommendation(max_tokens: int):
                 return self.client.chat.completions.create(
-                    model=(model or "gemini-2.5-flash"),
+                    model=(model or self.config.get('model', 'gemini-2.5-flash')),
                     messages=[
                         {
                             "role": "system",

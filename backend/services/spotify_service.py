@@ -10,14 +10,16 @@ logger = logging.getLogger(__name__)
 
 class SpotifyService:
     """Service for interacting with Spotify API using Spotipy"""
-    
-    def __init__(self, client_id: str, client_secret: str):
+
+    def __init__(self, client_id: str, client_secret: str, config: Optional[Dict] = None):
         """Initialize Spotify client with credentials"""
         self.client_credentials_manager = SpotifyClientCredentials(
             client_id=client_id,
             client_secret=client_secret
         )
         self.sp = spotipy.Spotify(client_credentials_manager=self.client_credentials_manager)
+        # Store config, fall back to empty dict if not provided
+        self.config = config or {}
     
     def search_track(self, title: str, artist: str) -> Optional[Dict]:
         """
@@ -36,7 +38,8 @@ class SpotifyService:
 
             best_match = self._find_best_match(queries, cleaned_title, primary_artist)
 
-            if not best_match or best_match[0] < 60:
+            threshold = self.config.get('matching', {}).get('threshold', 60)
+            if not best_match or best_match[0] < threshold:
                 logger.warning(f"No strong match for: {title} by {artist} (best_score={best_match[0] if best_match else 'n/a'})")
                 return None
 
@@ -144,13 +147,17 @@ class SpotifyService:
     def _find_best_match(self, queries: List[str], cleaned_title: str, primary_artist: str):
         """Run multiple queries and return the best-scoring track candidate."""
         best_match = None  # (score, track)
+        search_limit = self.config.get('search', {}).get('limit', 5)
+        market = self.config.get('search', {}).get('market', 'US')
+        early_exit_score = self.config.get('matching', {}).get('early_exit_score', 80)
+
         for query in queries:
-            results = self.sp.search(q=query, type="track", limit=5, market="US")
+            results = self.sp.search(q=query, type="track", limit=search_limit, market=market)
             for track in results.get("tracks", {}).get("items", []):
                 score = self._score_candidate(cleaned_title, primary_artist, track)
                 if not best_match or score > best_match[0]:
                     best_match = (score, track)
-            if best_match and best_match[0] >= 80:
+            if best_match and best_match[0] >= early_exit_score:
                 break  # good enough, stop early
         return best_match
 
@@ -161,12 +168,15 @@ class SpotifyService:
 
         title_score = SequenceMatcher(None, cleaned_title, track_title).ratio() * 100
 
+        primary_bonus = self.config.get('matching', {}).get('primary_artist_bonus', 50)
+        any_bonus = self.config.get('matching', {}).get('any_artist_bonus', 20)
+
         artist_score = 0
         if track_artists:
             if primary_artist.lower() == track_artists[0]:
-                artist_score += 50  # strongest: primary artist matches lead
+                artist_score += primary_bonus  # strongest: primary artist matches lead
             if primary_artist.lower() in track_artists:
-                artist_score += 20  # primary artist appears anywhere
+                artist_score += any_bonus  # primary artist appears anywhere
 
         return title_score + artist_score
 
