@@ -1,0 +1,21 @@
+{
+  "environment": "dev",
+  "flask": {
+    "debug": true
+  },
+  "database": {
+    "save_queue": {
+      "enabled": true,
+      "max_size": 50
+    },
+    "persistence": {
+      "save_requests": true,
+      "save_songs": true
+    }
+  },
+  "request_handling": {
+    "song_limits": {
+      "max": 100
+    }
+  }
+}
