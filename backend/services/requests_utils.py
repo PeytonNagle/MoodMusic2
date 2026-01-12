@@ -24,11 +24,16 @@ def parse_query(data: Dict[str, Any]) -> str:
     return str(data.get("query", "") or "").strip()
 
 
-def parse_emojis(emojis_raw: Optional[List[str]], max_emojis: int = 12) -> List[str]:
+def parse_emojis(emojis_raw: Optional[List[str]], max_emojis: Optional[int] = None) -> List[str]:
     if emojis_raw is None:
         return []
     if not isinstance(emojis_raw, list):
         raise ValidationError("emojis must be an array of strings", 400)
+
+    # Import Config lazily to avoid circular imports
+    if max_emojis is None:
+        from config import Config
+        max_emojis = Config.max_emojis()
 
     emojis: List[str] = []
     seen = set()
@@ -44,7 +49,16 @@ def parse_emojis(emojis_raw: Optional[List[str]], max_emojis: int = 12) -> List[
     return emojis
 
 
-def normalize_limit(raw_limit: Any, default: int = 10, min_limit: int = 10, max_limit: int = 50) -> int:
+def normalize_limit(raw_limit: Any, default: Optional[int] = None, min_limit: Optional[int] = None, max_limit: Optional[int] = None) -> int:
+    # Import Config lazily to avoid circular imports
+    from config import Config
+    if default is None:
+        default = Config.default_song_limit()
+    if min_limit is None:
+        min_limit = Config.min_song_limit()
+    if max_limit is None:
+        max_limit = Config.max_song_limit()
+
     try:
         value = int(raw_limit)
     except (ValueError, TypeError):
@@ -66,12 +80,25 @@ def require_query_or_emojis(query: str, emojis: List[str]) -> None:
         raise ValidationError("Please provide a search query or select emojis", 400)
 
 
-def compute_first_request_size(limit: int, popularity_label: Optional[str] = None, cap: int = 30) -> int:
+def compute_first_request_size(limit: int, popularity_label: Optional[str] = None, cap: Optional[int] = None) -> int:
     """Size first Gemini request; capped for consistency."""
-    base = max(int(limit * 1.5), limit)
+    # Import Config lazily to avoid circular imports
+    from config import Config
+    if cap is None:
+        cap = Config.get('request_handling.sizing.first_request.cap', 30)
+    multiplier = Config.get('request_handling.sizing.first_request.multiplier', 1.5)
+
+    base = max(int(limit * multiplier), limit)
     return min(base, cap)
 
 
-def compute_second_request_size(remaining_needed: int, cap: int = 40) -> int:
+def compute_second_request_size(remaining_needed: int, cap: Optional[int] = None) -> int:
     """Size second Gemini request with a small floor and cap."""
-    return min(max(int(remaining_needed * 2), 5), cap)
+    # Import Config lazily to avoid circular imports
+    from config import Config
+    if cap is None:
+        cap = Config.get('request_handling.sizing.second_request.cap', 40)
+    floor = Config.get('request_handling.sizing.second_request.floor', 5)
+    multiplier = Config.get('request_handling.sizing.second_request.multiplier', 2.0)
+
+    return min(max(int(remaining_needed * multiplier), floor), cap)

@@ -1,0 +1,24 @@
+{
+  "environment": "prod",
+  "flask": {
+    "debug": false
+  },
+  "database": {
+    "save_queue": {
+      "enabled": true,
+      "max_size": 200,
+      "behavior_on_full": "block"
+    }
+  },
+  "request_handling": {
+    "song_limits": {
+      "min": 5,
+      "max": 50
+    }
+  },
+  "gemini": {
+    "token_limits": {
+      "recommendations_cap": 15000
+    }
+  }
+}
