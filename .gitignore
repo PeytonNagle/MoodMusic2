@@ -70,3 +70,7 @@ yarn-error.log*
 
 # Git LFS hint: track large binaries instead of committing them
 # (use `git lfs track "<pattern>"` and commit .gitattributes)
+
+# Claude Code (allow plans, but exclude temp files if any)
+.claude/temp/
+.claude/*.tmp
