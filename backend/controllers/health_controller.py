@@ -1,0 +1,60 @@
+"""Health controller handling health check and root endpoints."""
+
+import logging
+from flask import jsonify
+from config import Config
+from .base_controller import BaseController
+
+logger = logging.getLogger(__name__)
+
+
+class HealthController(BaseController):
+    """Controller for health check and informational endpoints."""
+
+    def __init__(self, gemini_service=None, spotify_service=None):
+        """
+        Initialize health controller.
+
+        Args:
+            gemini_service: Optional GeminiService instance
+            spotify_service: Optional SpotifyService instance
+        """
+        super().__init__()
+        self.gemini_service = gemini_service
+        self.spotify_service = spotify_service
+
+    def health_check(self):
+        """Health check endpoint."""
+        try:
+            # Test Gemini connection
+            gemini_status = self.gemini_service.test_connection() if self.gemini_service else False
+
+            # Test Spotify connection
+            spotify_status = self.spotify_service.test_connection() if self.spotify_service else False
+
+            return jsonify({
+                'status': 'healthy',
+                'services': {
+                    'gemini': 'connected' if gemini_status else 'disconnected',
+                    'spotify': 'connected' if spotify_status else 'disconnected'
+                },
+                'config_loaded': Config.validate_config()
+            })
+
+        except Exception as e:
+            logger.exception("Health check failed")
+            return jsonify({
+                'status': 'unhealthy',
+                'error': str(e)
+            }), 500
+
+    def root(self):
+        """Root endpoint."""
+        return jsonify({
+            'message': 'Text-to-Spotify API',
+            'version': '1.0.0',
+            'endpoints': {
+                'search': '/api/search (POST)',
+                'health': '/api/health (GET)'
+            }
+        })

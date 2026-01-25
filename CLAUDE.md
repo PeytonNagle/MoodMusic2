@@ -28,24 +28,78 @@ npm run build    # Production build
 npm run preview  # Preview production build
 ```
 
-### Database Setup
+### Database Setup (Optional)
+Database features are optional. The app works without PostgreSQL for search/recommendations.
+
 ```bash
-# Initialize database schema (PostgreSQL)
+# Initialize database schema (PostgreSQL) for user accounts and history
+psql $DATABASE_URL -f backend/scripts/init.sql
+
+# Or use the schema directly
 psql $DATABASE_URL -f backend/scripts/schema.sql
 ```
 
+**Note:** Set `DATABASE_URL` in `.env` and ensure PostgreSQL is running. The backend gracefully handles missing database connections for core features.
+
 ## Environment Configuration
+
+### Required Environment Variables
 
 Create `backend/.env` with:
 ```
 GEMINI_API_KEY=your_key_here
 SPOTIPY_CLIENT_ID=your_spotify_client_id
 SPOTIPY_CLIENT_SECRET=your_spotify_client_secret
-DATABASE_URL=postgresql://user:pass@host:port/dbname
+DATABASE_URL=postgresql://user:pass@host:port/dbname  # required for DB features
 DEBUG=true  # optional
+ENVIRONMENT=dev  # optional: dev, staging, prod (defaults to dev)
 ```
 
+### JSON Configuration System
+
+The backend uses a layered JSON configuration system (`backend/configs/`):
+- `config.json`: Base configuration with all defaults
+- `config.{environment}.json`: Environment-specific overrides (dev, staging, prod)
+- Configurations are deep-merged, with environment configs overriding base values
+
+Key configuration sections:
+- `request_handling`: Emoji limits, song limits, request sizing parameters
+- `gemini`: Model selection, temperatures, token limits
+- `spotify`: Search parameters, fuzzy matching thresholds
+- `popularity`: Tolerance values, category ranges, filtering thresholds
+- `database`: Save queue behavior, persistence flags, history limits
+- `flask`: Server host, port, debug mode
+
+Access config values in code: `Config.get('path.to.value', default_value)`
+
 ## Architecture & Key Patterns
+
+### Backend Architecture (Updated 2026-01-24)
+
+The backend follows a **layered controller-service architecture** with dependency injection:
+
+```
+app.py (59 lines) - Service initialization & blueprint registration
+├── blueprints.py - Route definitions
+├── controllers/ - Business logic with injected services
+│   ├── SearchController - Search, analyze, recommend endpoints
+│   ├── UserController - Registration, login
+│   ├── HistoryController - User search history
+│   └── HealthController - Health checks
+├── services/ - External API integrations
+│   ├── gemini_service.py - Gemini AI calls
+│   ├── spotify_service.py - Spotify API calls
+│   └── requests_utils.py - Request validation
+├── workers/ - Background tasks
+│   └── save_worker.py - Async database saves
+└── db*.py - Database access layer
+```
+
+**Key Principles**:
+- **Dependency Injection**: Services passed to controllers via constructor
+- **Flask Blueprints**: Routes organized by functional area
+- **Separation of Concerns**: HTTP handling separate from business logic
+- **Testability**: Controllers can be unit tested without Flask context
 
 ### Backend Request Flow
 
@@ -82,6 +136,13 @@ DEBUG=true  # optional
 **`services/requests_utils.py`**:
 - Centralized validation logic: `require_json_body()`, `parse_query()`, `parse_emojis()`, `normalize_limit()`
 - `compute_first_request_size()` and `compute_second_request_size()` calculate dynamic Gemini request sizing
+- Custom `ValidationError` exception for client-facing 400-level errors
+
+**`config.py`**:
+- `ConfigLoader`: Loads and deep-merges JSON configs from `backend/configs/`
+- `Config`: Static configuration class with dot-notation access via `Config.get('path.to.value', default)`
+- Validates required environment variables (`GEMINI_API_KEY`, `SPOTIPY_CLIENT_ID`, `SPOTIPY_CLIENT_SECRET`)
+- Supports environment-specific overrides (dev/staging/prod)
 
 ### Database Layer
 
@@ -126,6 +187,19 @@ DEBUG=true  # optional
 ## Testing & Scripts
 
 - `backend/scripts/benchmark_gemini_models.py`: Benchmarking script for Gemini model performance
+- `backend/scripts/init.sql`: Full database initialization with users table and password_hash column
+- `backend/scripts/schema.sql`: Minimal schema (users, user_requests, recommended_songs tables)
+
+## Recent Improvements
+
+### P1.1 - Controller Refactor (Completed 2026-01-24)
+- ✅ Extracted controllers from monolithic `app.py` (796 → 59 lines, 92.6% reduction)
+- ✅ Implemented dependency injection for services
+- ✅ Created Flask Blueprints for route organization
+- ✅ Moved background worker to `workers/save_worker.py`
+- ✅ All endpoints verified working, no breaking changes
+
+See `.claude/P1.1-controller-refactor-summary.md` for details.
 
 ## Important Implementation Notes
 
@@ -142,3 +216,10 @@ DEBUG=true  # optional
 6. **Request Sizing**: Dynamic sizing uses `compute_first_request_size()` (1.5x limit, capped at 30) and `compute_second_request_size()` (2x remaining, capped at 40) to efficiently hit target counts after popularity filtering.
 
 7. **Frontend State Management**: Two-stage flow shows analysis tags immediately after `/api/analyze`, then displays loading spinner while `/api/recommend` fetches songs. This provides fast user feedback.
+
+8. **Configuration Management**: The app uses a two-layer config system:
+   - **Environment variables** (`.env`): API keys, database URLs, debug flags
+   - **JSON configs** (`backend/configs/`): All tunable parameters for request sizing, temperature, popularity ranges, etc.
+   - Modify JSON configs to adjust behavior without code changes; use `ENVIRONMENT` env var to switch between dev/staging/prod presets
+
+9. **Database Independence**: Core search/recommendation features work without PostgreSQL. Database features (user accounts, history, persistence) are optional and controlled by config flags (`database.save_queue.enabled`, `database.persistence.save_requests`, etc.).
