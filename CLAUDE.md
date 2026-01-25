@@ -74,6 +74,33 @@ Access config values in code: `Config.get('path.to.value', default_value)`
 
 ## Architecture & Key Patterns
 
+### Backend Architecture (Updated 2026-01-24)
+
+The backend follows a **layered controller-service architecture** with dependency injection:
+
+```
+app.py (59 lines) - Service initialization & blueprint registration
+├── blueprints.py - Route definitions
+├── controllers/ - Business logic with injected services
+│   ├── SearchController - Search, analyze, recommend endpoints
+│   ├── UserController - Registration, login
+│   ├── HistoryController - User search history
+│   └── HealthController - Health checks
+├── services/ - External API integrations
+│   ├── gemini_service.py - Gemini AI calls
+│   ├── spotify_service.py - Spotify API calls
+│   └── requests_utils.py - Request validation
+├── workers/ - Background tasks
+│   └── save_worker.py - Async database saves
+└── db*.py - Database access layer
+```
+
+**Key Principles**:
+- **Dependency Injection**: Services passed to controllers via constructor
+- **Flask Blueprints**: Routes organized by functional area
+- **Separation of Concerns**: HTTP handling separate from business logic
+- **Testability**: Controllers can be unit tested without Flask context
+
 ### Backend Request Flow
 
 1. **Search/Recommend Flow** (`/api/search`, `/api/recommend`):
@@ -162,6 +189,17 @@ Access config values in code: `Config.get('path.to.value', default_value)`
 - `backend/scripts/benchmark_gemini_models.py`: Benchmarking script for Gemini model performance
 - `backend/scripts/init.sql`: Full database initialization with users table and password_hash column
 - `backend/scripts/schema.sql`: Minimal schema (users, user_requests, recommended_songs tables)
+
+## Recent Improvements
+
+### P1.1 - Controller Refactor (Completed 2026-01-24)
+- ✅ Extracted controllers from monolithic `app.py` (796 → 59 lines, 92.6% reduction)
+- ✅ Implemented dependency injection for services
+- ✅ Created Flask Blueprints for route organization
+- ✅ Moved background worker to `workers/save_worker.py`
+- ✅ All endpoints verified working, no breaking changes
+
+See `.claude/P1.1-controller-refactor-summary.md` for details.
 
 ## Important Implementation Notes
 
