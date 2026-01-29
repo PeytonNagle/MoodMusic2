@@ -37,6 +37,13 @@ class UserController(BaseController):
             except errors.UniqueViolation:
                 return jsonify({'success': False, 'error': 'Email already registered'}), 409
 
+            if user is None:
+                return jsonify({
+                    'success': False,
+                    'error': 'User registration unavailable. Database connection required.',
+                    'error_code': 'DATABASE_UNAVAILABLE'
+                }), 503
+
             public_user = {
                 'id': user['id'],
                 'email': user['email'],
