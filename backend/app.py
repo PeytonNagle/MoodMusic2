@@ -8,11 +8,14 @@ from flask import Flask
 from flask_cors import CORS
 import logging
 import os
+import signal
+import sys
 from config import Config
 from services.gemini_service import GeminiService
 from services.spotify_service import SpotifyService
 from workers import SaveWorker
 from blueprints import register_blueprints
+import db
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -50,10 +53,35 @@ register_blueprints(
     save_queue=save_worker.queue
 )
 
+# Register teardown handlers for cleanup
+@app.teardown_appcontext
+def shutdown_db_pool(exception=None):
+    """Close database connection pool on app shutdown."""
+    if exception:
+        logger.error(f"App context teardown with exception: {exception}")
+    db.close_pool()
+
+
+# Handle shutdown signals for graceful cleanup
+def signal_handler(sig, frame):
+    """Handle shutdown signals for graceful cleanup."""
+    logger.info(f"Received signal {sig}, shutting down gracefully...")
+    save_worker.stop()
+    db.close_pool()
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
 if __name__ == '__main__':
     logger.info("Starting Text-to-Spotify API server...")
-    app.run(
-        debug=Config.DEBUG,
-        host=Config.get('flask.host', '0.0.0.0'),
-        port=Config.get('flask.port', int(os.getenv('PORT', 5000)))
-    )
+    try:
+        app.run(
+            debug=Config.DEBUG,
+            host=Config.get('flask.host', '0.0.0.0'),
+            port=Config.get('flask.port', int(os.getenv('PORT', 5000)))
+        )
+    finally:
+        # Ensure cleanup happens even if app.run() crashes
+        save_worker.stop()
+        db.close_pool()
