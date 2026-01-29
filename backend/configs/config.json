@@ -72,6 +72,10 @@
   },
 
   "database": {
+    "connection_pool": {
+      "min_connections": 2,
+      "max_connections": 10
+    },
     "save_queue": {
       "enabled": true,
       "max_size": 100,
