@@ -1,5 +1,8 @@
 {
   "environment": "prod",
+  "ai_provider": {
+    "default": "gemini"
+  },
   "flask": {
     "debug": false
   },

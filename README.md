@@ -1,21 +1,23 @@
 # MoodMusic2
 
-Full-stack app that converts mood descriptions (text + emojis) into Spotify song recommendations using Google Gemini AI.
+Full-stack app that converts mood descriptions (text + emojis) into Spotify song recommendations using configurable AI providers (Gemini or Ollama).
 
 ## Features
 
-- AI-powered mood analysis with Google Gemini
+- AI-powered mood analysis (Gemini or Ollama)
 - Smart song recommendations with explanations
 - Spotify integration (album art, previews, metadata)
 - 6-tier popularity filtering system
 - User accounts with search history
 - Connection pooling for 10-50x database performance
 - Modern React + TypeScript UI
+- Configurable AI provider (cloud or local inference)
 
 ## Tech Stack
 
-**Backend:** Flask, PostgreSQL, Google Gemini AI, Spotipy, psycopg2 ThreadedConnectionPool
+**Backend:** Flask, PostgreSQL, AI (Gemini/Ollama), Spotipy, psycopg2 ThreadedConnectionPool
 **Frontend:** React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui
+**AI Providers:** Google Gemini (cloud) or Ollama (local/remote LLM)
 
 ## Architecture
 
@@ -23,7 +25,11 @@ Full-stack app that converts mood descriptions (text + emojis) into Spotify song
 backend/
 ├── app.py                      # Flask initialization (59 lines)
 ├── controllers/                # Business logic (search, users, history)
-├── services/                   # External APIs (Gemini, Spotify)
+├── services/                   # External APIs (Gemini, Ollama, Spotify)
+│   ├── base_mood_service.py   # Abstract AI provider interface
+│   ├── gemini_service.py      # Gemini implementation
+│   ├── ollama_service.py      # Ollama implementation
+│   └── service_factory.py     # AI provider factory
 ├── workers/                    # Background database saves
 ├── configs/                    # JSON config files (dev/staging/prod)
 └── db.py                       # Connection pool management
@@ -31,6 +37,7 @@ backend/
 
 **Key Patterns:**
 - Controller-service architecture with dependency injection
+- Provider abstraction pattern for AI services
 - ThreadedConnectionPool with environment-specific sizing (dev: 1-5, prod: 5-20)
 - Async database saves via background worker queue
 - Two-layer config: JSON files + environment variables
@@ -42,12 +49,16 @@ backend/
 Create `backend/.env`:
 
 ```bash
-# Required
-GEMINI_API_KEY=your_gemini_api_key
+# AI Provider
+AI_PROVIDER=gemini  # or 'ollama' for local inference
+GEMINI_API_KEY=your_gemini_api_key  # required if using Gemini
+OLLAMA_BASE_URL=http://localhost:11434  # optional, override for remote Ollama
+
+# Spotify (required)
 SPOTIPY_CLIENT_ID=your_spotify_client_id
 SPOTIPY_CLIENT_SECRET=your_spotify_client_secret
 
-# Optional
+# Database (optional)
 DATABASE_URL=postgresql://user:pass@localhost:5432/moodmusic
 ENVIRONMENT=dev  # dev, staging, or prod
 ```
@@ -68,6 +79,33 @@ psql $DATABASE_URL -f backend/scripts/schema.sql
 cd frontend
 npm install
 ```
+
+### Ollama Setup (Optional)
+
+Use local AI inference instead of Gemini:
+
+**Install Ollama:**
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+**Pull a model:**
+```bash
+ollama pull llama3.2:1b
+```
+
+**Start Ollama:**
+```bash
+ollama serve
+```
+
+**Configure MoodMusic2:**
+```bash
+export AI_PROVIDER=ollama
+python backend/app.py
+```
+
+See [CLAUDE.md](CLAUDE.md#ai-provider-configuration) for advanced configuration.
 
 ### Run
 
@@ -97,14 +135,14 @@ cd frontend && npm run dev
 
 **Request Flow:**
 1. Parse & validate request
-2. Gemini analyzes mood from text + emojis
-3. Gemini generates song recommendations
+2. AI provider (Gemini/Ollama) analyzes mood from text + emojis
+3. AI provider generates song recommendations
 4. Spotify enriches with metadata via fuzzy matching
 5. Apply popularity filtering with tolerance
 6. Background worker saves to PostgreSQL (non-blocking)
 
 **Multi-Attempt Strategy:**
-Makes up to 2 Gemini requests with dynamic sizing (1.5x → 2x remaining) to hit target count after popularity filtering.
+Makes up to 2 AI requests with dynamic sizing (1.5x → 2x remaining) to hit target count after popularity filtering.
 
 **Popularity System:**
 6 tiers from Global/Superstar (90-100) to Under the Radar (0-14) with tolerance-based filtering.
@@ -127,7 +165,9 @@ Access via: `Config.get('database.connection_pool.min_connections')`
 
 ## Troubleshooting
 
-**Missing API Keys:** Set `GEMINI_API_KEY`, `SPOTIPY_CLIENT_ID`, `SPOTIPY_CLIENT_SECRET` in `backend/.env`
+**Missing API Keys:** If using Gemini, set `GEMINI_API_KEY` in `backend/.env`. Always set `SPOTIPY_CLIENT_ID` and `SPOTIPY_CLIENT_SECRET`.
+
+**Ollama Issues:** Ensure Ollama is running (`ollama serve`) and model is pulled (`ollama list`). Check `AI_PROVIDER=ollama` is set.
 
 **Database Errors:** Check `DATABASE_URL` format. App works without database for core search features.
 

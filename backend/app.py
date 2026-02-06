@@ -11,7 +11,7 @@ import os
 import signal
 import sys
 from config import Config
-from services.gemini_service import GeminiService
+from services.service_factory import MoodServiceFactory
 from services.spotify_service import SpotifyService
 from workers import SaveWorker
 from blueprints import register_blueprints
@@ -29,12 +29,26 @@ CORS(app)  # Enable CORS for frontend
 if not Config.validate_config():
     logger.warning("Some configuration variables are missing. Please check your .env file.")
 
-# Initialize services with config injection
-gemini_service = GeminiService(
-    Config.GEMINI_API_KEY,
-    Config._config_data.get('gemini')
-) if Config.GEMINI_API_KEY else None
+# Initialize AI provider service with config-driven factory
+provider = Config.get_ai_provider()
+logger.info(f"Initializing AI provider: {provider}")
 
+# Override base_url if environment variable is set
+ollama_config = Config._config_data.get('ai_provider', {}).get('ollama', {})
+if Config.OLLAMA_BASE_URL:
+    ollama_config = {**ollama_config, 'base_url': Config.OLLAMA_BASE_URL}
+
+mood_service = MoodServiceFactory.create_service(
+    provider=provider,
+    gemini_api_key=Config.GEMINI_API_KEY,
+    gemini_config=Config._config_data.get('gemini'),
+    ollama_config=ollama_config,
+)
+
+if not mood_service:
+    logger.error(f"Failed to initialize AI provider: {provider}")
+
+# Initialize Spotify service
 spotify_service = SpotifyService(
     Config.SPOTIPY_CLIENT_ID,
     Config.SPOTIPY_CLIENT_SECRET,
@@ -48,7 +62,7 @@ save_worker.start()
 # Register all blueprints
 register_blueprints(
     app,
-    gemini_service=gemini_service,
+    gemini_service=mood_service,  # Name unchanged for backward compatibility
     spotify_service=spotify_service,
     save_queue=save_worker.queue
 )

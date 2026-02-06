@@ -26,8 +26,11 @@ class HealthController(BaseController):
     def health_check(self):
         """Health check endpoint."""
         try:
-            # Test Gemini connection
-            gemini_status = self.gemini_service.test_connection() if self.gemini_service else False
+            # Get active AI provider
+            ai_provider = Config.get_ai_provider()
+
+            # Test AI service connection
+            ai_status = self.gemini_service.test_connection() if self.gemini_service else False
 
             # Test Spotify connection
             spotify_status = self.spotify_service.test_connection() if self.spotify_service else False
@@ -35,7 +38,8 @@ class HealthController(BaseController):
             return jsonify({
                 'status': 'healthy',
                 'services': {
-                    'gemini': 'connected' if gemini_status else 'disconnected',
+                    'ai_provider': ai_provider,
+                    'ai_service': 'connected' if ai_status else 'disconnected',
                     'spotify': 'connected' if spotify_status else 'disconnected'
                 },
                 'config_loaded': Config.validate_config()
