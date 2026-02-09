@@ -22,17 +22,17 @@ logger = logging.getLogger(__name__)
 class SearchController(BaseController):
     """Controller for search and recommendation endpoints."""
 
-    def __init__(self, gemini_service, spotify_service, save_queue=None):
+    def __init__(self, mood_service, spotify_service, save_queue=None):
         """
         Initialize search controller with services.
 
         Args:
-            gemini_service: GeminiService instance
+            mood_service: AI mood service instance (BaseMoodService - could be GeminiService or OllamaService)
             spotify_service: SpotifyService instance
             save_queue: Optional queue for background saves
         """
         super().__init__()
-        self.gemini_service = gemini_service
+        self.mood_service = mood_service
         self.spotify_service = spotify_service
         self.save_queue = save_queue
 
@@ -164,8 +164,9 @@ class SearchController(BaseController):
     def generate_recommendations(self, query, emojis, limit, analysis, popularity_label, min_popularity, max_popularity):
         """
         Shared recommendation flow for search and recommend endpoints.
-        Attempts up to 2 Gemini calls with consistent sizing and popularity filtering.
+        Attempts up to 2 AI provider calls with consistent sizing and popularity filtering.
         """
+        provider = Config.get_ai_provider()
         enriched_songs = []
         enriched_seen = set()
         all_requested_songs = []
@@ -173,7 +174,7 @@ class SearchController(BaseController):
 
         def request_and_enrich(num_songs):
             num_to_request = max(1, int(num_songs))
-            recommendations = self.gemini_service.recommend_songs(
+            recommendations = self.mood_service.recommend_songs(
                 query,
                 analysis,
                 num_to_request,
@@ -204,7 +205,7 @@ class SearchController(BaseController):
         attempt = 0
         first_num_songs = compute_first_request_size(limit, popularity_label=popularity_label)
         attempt += 1
-        logger.info(f"Attempt {attempt}: Requesting {first_num_songs} songs from Gemini (target {limit})...")
+        logger.info(f"Attempt {attempt}: Requesting {first_num_songs} songs from {provider} (target {limit})...")
         enriched_songs.extend(request_and_enrich(first_num_songs))
 
         filtered_count = len(self.filter_by_popularity(enriched_songs, min_popularity, max_popularity))
@@ -213,7 +214,7 @@ class SearchController(BaseController):
             remaining_needed = max(limit - filtered_count, 1)
             second_num_songs = compute_second_request_size(remaining_needed)
             attempt += 1
-            logger.info(f"Attempt {attempt}: Requesting {second_num_songs} songs from Gemini (need ~{remaining_needed} more after filtering)...")
+            logger.info(f"Attempt {attempt}: Requesting {second_num_songs} songs from {provider} (need ~{remaining_needed} more after filtering)...")
             enriched_songs.extend(request_and_enrich(second_num_songs))
 
         filtered = self.filter_by_popularity_with_seen(enriched_songs, min_popularity, max_popularity, set())
@@ -271,11 +272,12 @@ class SearchController(BaseController):
             )
 
             # Check if services are available
-            if not self.gemini_service:
+            if not self.mood_service:
+                provider = Config.get_ai_provider()
                 return jsonify({
                     'success': False,
                     'songs': [],
-                    'error': 'Gemini service not configured. Please add GEMINI_API_KEY to .env file.'
+                    'error': f'AI service ({provider}) not configured. Please check your configuration.'
                 }), 500
 
             if not self.spotify_service:
@@ -286,8 +288,9 @@ class SearchController(BaseController):
                 }), 500
 
             # Step 1: Fast mood/constraint analysis
-            logger.info("Getting mood analysis from Gemini...")
-            analysis_result = self.gemini_service.analyze_mood(query, emojis)
+            provider = Config.get_ai_provider()
+            logger.info(f"Getting mood analysis from {provider}...")
+            analysis_result = self.mood_service.analyze_mood(query, emojis)
             analysis = analysis_result.get('analysis', {}) if isinstance(analysis_result, dict) else {}
 
             enriched_songs = self.generate_recommendations(
@@ -330,15 +333,17 @@ class SearchController(BaseController):
 
             require_query_or_emojis(query, emojis)
 
-            if not self.gemini_service:
+            if not self.mood_service:
+                provider = Config.get_ai_provider()
                 return jsonify({
                     'success': False,
                     'analysis': {},
-                    'error': 'Gemini service not configured. Please add GEMINI_API_KEY to .env file.'
+                    'error': f'AI service ({provider}) not configured. Please check your configuration.'
                 }), 500
 
-            logger.info("Getting mood analysis from Gemini (analyze endpoint)...")
-            analysis_result = self.gemini_service.analyze_mood(query, emojis)
+            provider = Config.get_ai_provider()
+            logger.info(f"Getting mood analysis from {provider} (analyze endpoint)...")
+            analysis_result = self.mood_service.analyze_mood(query, emojis)
             analysis = analysis_result.get('analysis', {}) if isinstance(analysis_result, dict) else {}
 
             return jsonify({'success': True, 'analysis': analysis, 'error': None})
@@ -365,12 +370,13 @@ class SearchController(BaseController):
 
             require_query_or_emojis(query, emojis)
 
-            if not self.gemini_service:
+            if not self.mood_service:
+                provider = Config.get_ai_provider()
                 return jsonify({
                     'success': False,
                     'songs': [],
                     'analysis': {},
-                    'error': 'Gemini service not configured. Please add GEMINI_API_KEY to .env file.'
+                    'error': f'AI service ({provider}) not configured. Please check your configuration.'
                 }), 500
             if not self.spotify_service:
                 return jsonify({
@@ -382,8 +388,9 @@ class SearchController(BaseController):
 
             analysis = analysis_payload if isinstance(analysis_payload, dict) else {}
             if not analysis:
-                logger.info("No analysis provided; generating via Gemini...")
-                analysis_result = self.gemini_service.analyze_mood(query, emojis)
+                provider = Config.get_ai_provider()
+                logger.info(f"No analysis provided; generating via {provider}...")
+                analysis_result = self.mood_service.analyze_mood(query, emojis)
                 analysis = analysis_result.get('analysis', {}) if isinstance(analysis_result, dict) else {}
 
             enriched_songs = self.generate_recommendations(

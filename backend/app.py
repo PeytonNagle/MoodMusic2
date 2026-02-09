@@ -62,7 +62,7 @@ save_worker.start()
 # Register all blueprints
 register_blueprints(
     app,
-    gemini_service=mood_service,  # Name unchanged for backward compatibility
+    mood_service=mood_service,
     spotify_service=spotify_service,
     save_queue=save_worker.queue
 )

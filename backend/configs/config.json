@@ -6,7 +6,7 @@
     "default": "gemini",
     "ollama": {
       "base_url": "http://localhost:11434",
-      "model": "llama3.2:1b",
+      "model": "llama3.2:3b",
       "temperatures": {
         "analysis": 0.3,
         "recommendations_standard": 0.7,

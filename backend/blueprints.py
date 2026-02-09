@@ -9,10 +9,10 @@ from controllers import (
 )
 
 
-def create_search_blueprint(gemini_service, spotify_service, save_queue=None):
+def create_search_blueprint(mood_service, spotify_service, save_queue=None):
     """Create and configure search blueprint."""
     bp = Blueprint('search', __name__, url_prefix='/api')
-    controller = SearchController(gemini_service, spotify_service, save_queue)
+    controller = SearchController(mood_service, spotify_service, save_queue)
 
     bp.route('/search', methods=['POST'])(controller.search_music)
     bp.route('/analyze', methods=['POST'])(controller.analyze)
@@ -42,10 +42,10 @@ def create_history_blueprint():
     return bp
 
 
-def create_health_blueprint(gemini_service=None, spotify_service=None):
+def create_health_blueprint(mood_service=None, spotify_service=None):
     """Create and configure health blueprint."""
     bp = Blueprint('health', __name__)
-    controller = HealthController(gemini_service, spotify_service)
+    controller = HealthController(mood_service, spotify_service)
 
     bp.route('/api/health', methods=['GET'])(controller.health_check)
     bp.route('/', methods=['GET'])(controller.root)
@@ -53,17 +53,17 @@ def create_health_blueprint(gemini_service=None, spotify_service=None):
     return bp
 
 
-def register_blueprints(app, gemini_service, spotify_service, save_queue=None):
+def register_blueprints(app, mood_service, spotify_service, save_queue=None):
     """
     Register all blueprints with the Flask app.
 
     Args:
         app: Flask application instance
-        gemini_service: GeminiService instance
+        mood_service: AI mood service instance (BaseMoodService - could be GeminiService or OllamaService)
         spotify_service: SpotifyService instance
         save_queue: Optional queue for background saves
     """
-    app.register_blueprint(create_search_blueprint(gemini_service, spotify_service, save_queue))
+    app.register_blueprint(create_search_blueprint(mood_service, spotify_service, save_queue))
     app.register_blueprint(create_user_blueprint())
     app.register_blueprint(create_history_blueprint())
-    app.register_blueprint(create_health_blueprint(gemini_service, spotify_service))
+    app.register_blueprint(create_health_blueprint(mood_service, spotify_service))
