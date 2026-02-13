@@ -1,17 +1,16 @@
 # MoodMusic2
 
-Full-stack app that converts mood descriptions (text + emojis) into Spotify song recommendations using configurable AI providers (Gemini or Ollama).
+Full-stack app that converts mood descriptions (text + emojis) into Spotify song recommendations using AI-powered mood analysis and smart Spotify enrichment.
 
 ## Features
 
-- AI-powered mood analysis (Gemini or Ollama)
-- Smart song recommendations with explanations
-- Spotify integration (album art, previews, metadata)
-- 6-tier popularity filtering system
+- AI-powered mood analysis with song recommendations
+- Spotify integration with fuzzy matching (album art, previews, metadata)
+- 6-tier popularity filtering system with tolerance-based ranking
 - User accounts with search history
-- Connection pooling for 10-50x database performance
-- Modern React + TypeScript UI
-- Configurable AI provider (cloud or local inference)
+- High-performance connection pooling (10-50x database performance improvement)
+- Modern React + TypeScript UI with shadcn/ui components
+- Controller-service architecture with dependency injection
 
 ## Tech Stack
 
