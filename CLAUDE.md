@@ -4,11 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-MoodMusic2 is a full-stack application that converts mood descriptions (text + emojis) into Spotify song recommendations using Google Gemini AI for analysis and the Spotify API for enrichment.
+MoodMusic2 is a full-stack application that converts mood descriptions (text + emojis) into Spotify song recommendations using AI for mood analysis and the Spotify API for enrichment.
 
 **Stack:**
-- Backend: Flask + PostgreSQL, Google Gemini (via OpenAI-compatible endpoint), Spotipy
+- Backend: Flask + PostgreSQL, configurable AI provider (Gemini or Ollama), Spotipy
 - Frontend: React + TypeScript, Vite, Tailwind CSS, shadcn/ui components
+- AI Providers: Google Gemini (via OpenAI-compatible endpoint) or Ollama (local/remote LLM)
 
 ## Development Commands
 
@@ -47,12 +48,21 @@ psql $DATABASE_URL -f backend/scripts/schema.sql
 
 Create `backend/.env` with:
 ```
-GEMINI_API_KEY=your_key_here
+# AI Provider (optional, defaults to config file)
+AI_PROVIDER=gemini  # or 'ollama' for local inference
+GEMINI_API_KEY=your_gemini_api_key  # required if using Gemini
+OLLAMA_BASE_URL=http://localhost:11434  # optional, override for remote Ollama
+
+# Spotify (required)
 SPOTIPY_CLIENT_ID=your_spotify_client_id
 SPOTIPY_CLIENT_SECRET=your_spotify_client_secret
+
+# Database (optional)
 DATABASE_URL=postgresql://user:pass@host:port/dbname  # required for DB features
-DEBUG=true  # optional
-ENVIRONMENT=dev  # optional: dev, staging, prod (defaults to dev)
+
+# Flask (optional)
+DEBUG=true
+ENVIRONMENT=dev  # dev, staging, or prod (defaults to dev)
 ```
 
 ### JSON Configuration System
@@ -63,6 +73,7 @@ The backend uses a layered JSON configuration system (`backend/configs/`):
 - Configurations are deep-merged, with environment configs overriding base values
 
 Key configuration sections:
+- `ai_provider`: Default provider, Ollama settings (model, temperatures, token limits)
 - `request_handling`: Emoji limits, song limits, request sizing parameters
 - `gemini`: Model selection, temperatures, token limits
 - `spotify`: Search parameters, fuzzy matching thresholds
@@ -71,6 +82,104 @@ Key configuration sections:
 - `flask`: Server host, port, debug mode
 
 Access config values in code: `Config.get('path.to.value', default_value)`
+
+## AI Provider Configuration
+
+MoodMusic2 supports multiple AI providers for mood analysis and song recommendations.
+
+### Supported Providers
+- **Gemini** (default): Google Gemini AI via OpenAI-compatible endpoint
+- **Ollama**: Local/remote LLM inference (supports any Ollama model)
+
+### Switching Providers
+
+**Via Environment Variable (highest priority):**
+```bash
+export AI_PROVIDER=ollama  # or 'gemini'
+export OLLAMA_BASE_URL=http://localhost:11434  # optional override
+```
+
+**Via Configuration File:**
+Edit `backend/configs/config.json` or environment-specific overrides:
+```json
+{
+  "ai_provider": {
+    "default": "ollama",
+    "ollama": {
+      "base_url": "http://your-server:11434",
+      "model": "llama3.2:1b"
+    }
+  }
+}
+```
+
+### Ollama Setup
+
+**Install Ollama:**
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+**Pull a model:**
+```bash
+ollama pull llama3.2:1b  # Or mistral, llama3.2:3b, etc.
+```
+
+**Start Ollama:**
+```bash
+ollama serve  # Runs on http://localhost:11434
+```
+
+**Verify:**
+```bash
+curl http://localhost:11434/api/tags  # Should list available models
+```
+
+### Supported Ollama Models
+
+The system works with any Ollama model. Configure via `ai_provider.ollama.model`:
+
+**Recommended models:**
+- `llama3.2:1b` - Fastest, lowest resource usage
+- `llama3.2:3b` - Better quality, still fast
+- `mistral:7b` - Higher quality, needs more RAM
+
+**Configuration example:**
+```json
+{
+  "ai_provider": {
+    "ollama": {
+      "model": "mistral:7b"
+    }
+  }
+}
+```
+
+### Provider Comparison
+
+| Feature | Gemini | Ollama |
+|---------|--------|--------|
+| Latency | 500-2000ms (cloud) | 100-500ms (local) |
+| Cost | API usage charges | Free (local compute) |
+| Quality | High (large model) | Variable (model-dependent) |
+| Privacy | Data sent to Google | Fully local |
+| Availability | Requires internet | Works offline |
+| Setup | API key only | Requires installation |
+
+### Architecture
+
+**Service Abstraction:**
+- `BaseMoodService` - Abstract base class defining the interface
+- `GeminiService` - Google Gemini implementation
+- `OllamaService` - Ollama implementation
+- `MoodServiceFactory` - Creates service instances based on configuration
+
+Controllers remain provider-agnostic and work with any `BaseMoodService` implementation.
+
+**Configuration System:**
+- Environment variables override JSON config
+- Different defaults per environment (dev → ollama, prod → gemini)
+- Model-specific tuning (temperatures, token limits)
 
 ## Architecture & Key Patterns
 

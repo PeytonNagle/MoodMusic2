@@ -1,5 +1,8 @@
 {
   "environment": "dev",
+  "ai_provider": {
+    "default": "ollama"
+  },
   "flask": {
     "debug": true
   },

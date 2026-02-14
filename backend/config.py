@@ -75,7 +75,8 @@ class ConfigLoader:
             'gemini',
             'spotify',
             'popularity',
-            'database'
+            'database',
+            'ai_provider'
         ]
 
         missing = [sec for sec in required_sections if sec not in config]
@@ -95,6 +96,10 @@ class Config:
     SPOTIPY_CLIENT_ID = os.getenv('SPOTIPY_CLIENT_ID')
     SPOTIPY_CLIENT_SECRET = os.getenv('SPOTIPY_CLIENT_SECRET')
     SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
+
+    # AI Provider settings
+    AI_PROVIDER = os.getenv('AI_PROVIDER')  # Override config if set
+    OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL')  # Override config if set
 
     # Load JSON configurations
     _loader = ConfigLoader()
@@ -181,14 +186,26 @@ class Config:
         """Returns: 'skip', 'block', or 'error'"""
         return cls.get('database.save_queue.behavior_on_full', 'skip')
 
+    @classmethod
+    def get_ai_provider(cls) -> str:
+        """Get the active AI provider name (gemini or ollama)."""
+        if cls.AI_PROVIDER:
+            return cls.AI_PROVIDER.lower()
+        return cls.get('ai_provider.default', 'gemini').lower()
+
     @staticmethod
     def validate_config():
-        """Validate that required API keys are present"""
+        """Validate that required API keys are present based on active provider"""
+        provider = Config.get_ai_provider()
+
         required_vars = [
-            ('GEMINI_API_KEY', Config.GEMINI_API_KEY),
             ('SPOTIPY_CLIENT_ID', Config.SPOTIPY_CLIENT_ID),
             ('SPOTIPY_CLIENT_SECRET', Config.SPOTIPY_CLIENT_SECRET)
         ]
+
+        # Only require Gemini key if using Gemini
+        if provider == 'gemini':
+            required_vars.append(('GEMINI_API_KEY', Config.GEMINI_API_KEY))
 
         missing_vars = [name for name, value in required_vars if not value]
 
