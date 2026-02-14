@@ -3,22 +3,22 @@ import openai
 from typing import List, Dict, Any, Optional
 import json
 import logging
+from .base_mood_service import BaseMoodService
 
 logger = logging.getLogger(__name__)
 
 
-class GeminiService:
+class GeminiService(BaseMoodService):
     """Service for interacting with Google Gemini via OpenAI-compatible API"""
 
     def __init__(self, api_key: str, config: Optional[Dict[str, Any]] = None):
         """Initialize OpenAI client pointed at Gemini's compatible endpoint"""
+        super().__init__(config)
         # Gemini OpenAI-compatible endpoint (v1beta)
         self.client = openai.OpenAI(
             api_key=api_key,
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
         )
-        # Store config, fall back to empty dict if not provided
-        self.config = config or {}
 
     def analyze_mood(
         self,
