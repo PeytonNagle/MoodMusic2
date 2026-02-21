@@ -1,7 +1,7 @@
 # backend/db_queries.py
 
 from db import get_db_connection
-import json
+import psycopg2.extras
 import logging
 
 logger = logging.getLogger(__name__)
@@ -26,9 +26,8 @@ def save_user_request(
         RETURNING id;
     """
 
-    # Convert Python dict/list to JSON if needed
-    emojis_json = json.dumps(emojis) if emojis else None
-    analysis_json = json.dumps(analysis) if analysis else None
+    emojis_payload = psycopg2.extras.Json(emojis) if emojis else None
+    analysis_payload = psycopg2.extras.Json(analysis) if analysis else None
 
     with get_db_connection() as conn:
         if conn is None:
@@ -38,7 +37,7 @@ def save_user_request(
         with conn.cursor() as cur:
             cur.execute(
                 query,
-                (user_id, text_description, emojis_json, num_songs, analysis_json)
+                (user_id, text_description, emojis_payload, num_songs, analysis_payload)
             )
             new_id = cur.fetchone()["id"]
             conn.commit()
