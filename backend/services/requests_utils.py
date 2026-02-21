@@ -33,7 +33,7 @@ def parse_emojis(emojis_raw: Optional[List[str]], max_emojis: Optional[int] = No
     # Import Config lazily to avoid circular imports
     if max_emojis is None:
         from config import Config
-        max_emojis = Config.max_emojis()
+        max_emojis = Config.get('request_handling.max_emojis', 12)
 
     emojis: List[str] = []
     seen = set()
@@ -53,11 +53,11 @@ def normalize_limit(raw_limit: Any, default: Optional[int] = None, min_limit: Op
     # Import Config lazily to avoid circular imports
     from config import Config
     if default is None:
-        default = Config.default_song_limit()
+        default = Config.get('request_handling.song_limits.default', 10)
     if min_limit is None:
-        min_limit = Config.min_song_limit()
+        min_limit = Config.get('request_handling.song_limits.min', 10)
     if max_limit is None:
-        max_limit = Config.max_song_limit()
+        max_limit = Config.get('request_handling.song_limits.max', 50)
 
     try:
         value = int(raw_limit)

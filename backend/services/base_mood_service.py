@@ -7,6 +7,10 @@ must follow (GeminiService, OllamaService, etc.).
 
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
+import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class BaseMoodService(ABC):
@@ -118,3 +122,56 @@ class BaseMoodService(ABC):
             "analysis": analysis_result.get("analysis", {}),
             "songs": songs_result.get("songs", [])
         }
+
+    def _extract_json(self, content: str) -> Any:
+        """Normalize and parse JSON, stripping markdown code fences if present."""
+        content = content.strip()
+        if content.startswith('```json'):
+            content = content[7:]
+            if content.endswith('```'):
+                content = content[:-3]
+        elif content.startswith('```'):
+            content = content[3:]
+            if content.endswith('```'):
+                content = content[:-3]
+        return json.loads(content.strip())
+
+    def _extract_json_with_salvage(self, content: str) -> Any:
+        """Parse JSON and attempt a light repair on failure."""
+        try:
+            return self._extract_json(content)
+        except json.JSONDecodeError as e:
+            logger.warning(f"JSON parse failed; trimming to last complete song. error={e}")
+            repaired = self._salvage_to_last_complete_song(content)
+            parsed = self._extract_json(repaired)
+            logger.info("JSON salvage succeeded using trimmed payload.")
+            return parsed
+
+    def _salvage_to_last_complete_song(self, content: str) -> str:
+        """Trim a truncated response back to the last complete song object and close the JSON."""
+        text = content.strip()
+        if text.startswith('```json'):
+            text = text[7:]
+            if text.endswith('```'):
+                text = text[:-3]
+        elif text.startswith('```'):
+            text = text[3:]
+            if text.endswith('```'):
+                text = text[:-3]
+
+        text = text.strip()
+
+        last_brace = text.rfind('}')
+        if last_brace == -1:
+            return text
+
+        text = text[: last_brace + 1]
+        text = text.rstrip(', \n\r\t')
+
+        if text.endswith(','):
+            text = text.rstrip(', \n\r\t')
+
+        if '"songs"' in text and '[' in text and not text.strip().endswith((']', ']}', '}}')):
+            text += "\n  ]\n}"
+
+        return text
