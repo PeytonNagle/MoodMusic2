@@ -5,7 +5,7 @@ import threading
 import queue
 from typing import Optional
 from config import Config
-from db import get_db_connection
+from db import db_connection
 import psycopg2.extras
 
 logger = logging.getLogger(__name__)
@@ -81,9 +81,8 @@ class SaveWorker:
     @staticmethod
     def _save_user_request(query, emojis, limit, analysis, user_id=None):
         """Save user request to database."""
-        with get_db_connection() as conn:
+        with db_connection("save user request") as conn:
             if conn is None:
-                logger.warning("Database unavailable, cannot save user request")
                 return None
 
             try:
@@ -121,9 +120,8 @@ class SaveWorker:
     @staticmethod
     def _save_recommended_song(request_id, position, song, user_id=None):
         """Save recommended song to database."""
-        with get_db_connection() as conn:
+        with db_connection("save recommended song") as conn:
             if conn is None:
-                logger.warning("Database unavailable, cannot save recommended song")
                 return
 
             try:

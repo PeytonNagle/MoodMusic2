@@ -1,6 +1,6 @@
 # backend/db_queries.py
 
-from db import get_db_connection
+from db import db_connection
 import psycopg2.extras
 import logging
 
@@ -29,9 +29,8 @@ def save_user_request(
     emojis_payload = psycopg2.extras.Json(emojis) if emojis else None
     analysis_payload = psycopg2.extras.Json(analysis) if analysis else None
 
-    with get_db_connection() as conn:
+    with db_connection("save user request") as conn:
         if conn is None:
-            logger.warning("Database unavailable, cannot save user request")
             return None
 
         with conn.cursor() as cur:
@@ -54,9 +53,8 @@ def create_user(email, password_hash, display_name=None):
         VALUES (%s, %s, %s)
         RETURNING id, email, display_name, created_at;
     """
-    with get_db_connection() as conn:
+    with db_connection("create user") as conn:
         if conn is None:
-            logger.warning("Database unavailable, cannot create user")
             return None
 
         with conn.cursor() as cur:
@@ -73,9 +71,8 @@ def get_user_by_email(email):
         FROM users
         WHERE email = %s;
     """
-    with get_db_connection() as conn:
+    with db_connection("get user by email") as conn:
         if conn is None:
-            logger.warning("Database unavailable, cannot get user by email")
             return None
 
         with conn.cursor() as cur:

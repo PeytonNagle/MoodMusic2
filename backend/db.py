@@ -68,6 +68,24 @@ def close_pool():
 
 
 @contextmanager
+def db_connection(operation: str = "perform database operation"):
+    """
+    Wrapper around get_db_connection that logs a standard warning when the
+    database is unavailable. Yields None if unavailable, connection otherwise.
+
+    Usage:
+        with db_connection("save user request") as conn:
+            if conn is None:
+                return None
+            # ... do work
+    """
+    with get_db_connection() as conn:
+        if conn is None:
+            logger.warning(f"Database unavailable, cannot {operation}")
+        yield conn
+
+
+@contextmanager
 def get_db_connection():
     """
     Context manager that yields a database connection from the pool.

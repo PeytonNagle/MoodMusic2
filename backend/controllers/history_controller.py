@@ -3,7 +3,7 @@
 import logging
 from flask import request, jsonify
 from config import Config
-from db import get_db_connection
+from db import db_connection
 from .base_controller import BaseController
 
 logger = logging.getLogger(__name__)
@@ -18,9 +18,8 @@ class HistoryController(BaseController):
 
     def fetch_user_history_records(self, user_id: int, limit: int = 20):
         """Fetch user history records from database."""
-        with get_db_connection() as conn:
+        with db_connection("fetch user history") as conn:
             if conn is None:
-                logger.warning("Database unavailable, returning empty history")
                 return []
 
             try:
