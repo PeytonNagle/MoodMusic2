@@ -398,7 +398,7 @@ class SearchController(BaseController):
             )
 
             # Queue async save if save_queue is available
-            if self.save_queue and Config.save_queue_enabled():
+            if self.save_queue and Config.get('database.save_queue.enabled', True):
                 import queue
                 job_data = {
                     "query": query,
@@ -409,7 +409,7 @@ class SearchController(BaseController):
                     "user_id": user_id,
                 }
 
-                behavior = Config.save_queue_behavior()
+                behavior = Config.get('database.save_queue.behavior_on_full', 'skip')
                 try:
                     if behavior == 'skip':
                         self.save_queue.put_nowait(job_data)

@@ -148,44 +148,6 @@ class Config:
 
         return value
 
-    # Convenience methods for commonly used values
-    @classmethod
-    def max_emojis(cls) -> int:
-        return cls.get('request_handling.max_emojis', 12)
-
-    @classmethod
-    def default_song_limit(cls) -> int:
-        return cls.get('request_handling.song_limits.default', 10)
-
-    @classmethod
-    def min_song_limit(cls) -> int:
-        return cls.get('request_handling.song_limits.min', 10)
-
-    @classmethod
-    def max_song_limit(cls) -> int:
-        return cls.get('request_handling.song_limits.max', 50)
-
-    @classmethod
-    def save_queue_enabled(cls) -> bool:
-        return cls.get('database.save_queue.enabled', True)
-
-    @classmethod
-    def save_requests_enabled(cls) -> bool:
-        return cls.get('database.persistence.save_requests', True)
-
-    @classmethod
-    def save_songs_enabled(cls) -> bool:
-        return cls.get('database.persistence.save_songs', True)
-
-    @classmethod
-    def save_queue_max_size(cls) -> int:
-        return cls.get('database.save_queue.max_size', 100)
-
-    @classmethod
-    def save_queue_behavior(cls) -> str:
-        """Returns: 'skip', 'block', or 'error'"""
-        return cls.get('database.save_queue.behavior_on_full', 'skip')
-
     @classmethod
     def get_ai_provider(cls) -> str:
         """Get the active AI provider name (gemini or ollama)."""

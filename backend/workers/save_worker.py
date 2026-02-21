@@ -22,7 +22,7 @@ class SaveWorker:
             maxsize: Maximum queue size. If None, uses config value.
         """
         if maxsize is None:
-            maxsize = Config.save_queue_max_size()
+            maxsize = Config.get('database.save_queue.max_size', 100)
 
         self.queue: "queue.Queue[dict]" = queue.Queue(maxsize=maxsize)
         self.worker_thread = threading.Thread(
@@ -57,7 +57,7 @@ class SaveWorker:
             try:
                 request_id = None
                 # Only save requests if enabled in config
-                if Config.save_requests_enabled():
+                if Config.get('database.persistence.save_requests', True):
                     request_id = self._save_user_request(
                         job["query"],
                         job.get("emojis"),
@@ -67,7 +67,7 @@ class SaveWorker:
                     )
 
                 # Only save songs if enabled and we have a request_id
-                if Config.save_songs_enabled() and request_id:
+                if Config.get('database.persistence.save_songs', True) and request_id:
                     for i, song in enumerate(job["songs"]):
                         self._save_recommended_song(request_id, i + 1, song, job.get("user_id"))
 
