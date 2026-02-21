@@ -53,6 +53,28 @@ class SearchController(BaseController):
             "Under the Radar": 15,
         })
 
+    def _require_services(self, needs_spotify: bool = False, **empty_fields):
+        """Check required services are available.
+
+        Returns a (jsonify_response, 500) tuple if a service is missing, else None.
+        Pass empty_fields to match the calling endpoint's response shape, e.g.
+        songs=[], analysis={}.
+        """
+        if not self.mood_service:
+            provider = Config.get_ai_provider()
+            return jsonify({
+                'success': False,
+                'error': f'AI service ({provider}) not configured. Please check your configuration.',
+                **empty_fields
+            }), 500
+        if needs_spotify and not self.spotify_service:
+            return jsonify({
+                'success': False,
+                'error': 'Spotify service not configured. Please add SPOTIPY_CLIENT_ID and SPOTIPY_CLIENT_SECRET to .env file.',
+                **empty_fields
+            }), 500
+        return None
+
     def resolve_popularity_constraints(self, data):
         """
         Resolve popularity label/range into filtering bounds and Gemini hint.
@@ -271,21 +293,9 @@ class SearchController(BaseController):
                 f"min_popularity: {min_popularity}, max_popularity: {max_popularity}, emojis: {emojis}"
             )
 
-            # Check if services are available
-            if not self.mood_service:
-                provider = Config.get_ai_provider()
-                return jsonify({
-                    'success': False,
-                    'songs': [],
-                    'error': f'AI service ({provider}) not configured. Please check your configuration.'
-                }), 500
-
-            if not self.spotify_service:
-                return jsonify({
-                    'success': False,
-                    'songs': [],
-                    'error': 'Spotify service not configured. Please add SPOTIPY_CLIENT_ID and SPOTIPY_CLIENT_SECRET to .env file.'
-                }), 500
+            err = self._require_services(needs_spotify=True, songs=[])
+            if err:
+                return err
 
             # Step 1: Fast mood/constraint analysis
             provider = Config.get_ai_provider()
@@ -333,13 +343,9 @@ class SearchController(BaseController):
 
             require_query_or_emojis(query, emojis)
 
-            if not self.mood_service:
-                provider = Config.get_ai_provider()
-                return jsonify({
-                    'success': False,
-                    'analysis': {},
-                    'error': f'AI service ({provider}) not configured. Please check your configuration.'
-                }), 500
+            err = self._require_services(analysis={})
+            if err:
+                return err
 
             provider = Config.get_ai_provider()
             logger.info(f"Getting mood analysis from {provider} (analyze endpoint)...")
@@ -370,21 +376,9 @@ class SearchController(BaseController):
 
             require_query_or_emojis(query, emojis)
 
-            if not self.mood_service:
-                provider = Config.get_ai_provider()
-                return jsonify({
-                    'success': False,
-                    'songs': [],
-                    'analysis': {},
-                    'error': f'AI service ({provider}) not configured. Please check your configuration.'
-                }), 500
-            if not self.spotify_service:
-                return jsonify({
-                    'success': False,
-                    'songs': [],
-                    'analysis': {},
-                    'error': 'Spotify service not configured. Please add SPOTIPY_CLIENT_ID and SPOTIPY_CLIENT_SECRET to .env file.'
-                }), 500
+            err = self._require_services(needs_spotify=True, songs=[], analysis={})
+            if err:
+                return err
 
             analysis = analysis_payload if isinstance(analysis_payload, dict) else {}
             if not analysis:
