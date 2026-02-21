@@ -332,3 +332,8 @@ See `.claude/P1.1-controller-refactor-summary.md` for details.
    - Modify JSON configs to adjust behavior without code changes; use `ENVIRONMENT` env var to switch between dev/staging/prod presets
 
 9. **Database Independence**: Core search/recommendation features work without PostgreSQL. Database features (user accounts, history, persistence) are optional and controlled by config flags (`database.save_queue.enabled`, `database.persistence.save_requests`, etc.).
+
+
+
+## Important Development Rules
+- Save plans in the project's plans/ directory: "./.claude/plans/"
