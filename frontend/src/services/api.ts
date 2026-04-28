@@ -3,16 +3,16 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
 export interface Track {
-  id: string | null;
+  track_id: string | null;
   title: string;
   artist: string;
   album: string;
   album_art: string | null;
   preview_url: string | null;
-  spotify_url: string | null;
+  track_url: string | null;
   release_year: string | null;
   duration_formatted: string | null;
-  popularity: number;
+  popularity: number | null;
 }
 
 export interface User {
@@ -54,13 +54,13 @@ export interface RecommendResponse {
 
 export interface HistorySongResponse {
   position: number;
-  spotify_track_id: string | null;
+  track_id: string | null;
   title: string;
   artist: string;
   album: string | null;
   album_art: string | null;
   preview_url: string | null;
-  spotify_url: string | null;
+  track_url: string | null;
   release_year: string | null;
   duration_ms: number | null;
   duration_formatted: string | null;
@@ -244,8 +244,10 @@ export class ApiService {
   static async healthCheck(): Promise<{
     status: string;
     services: {
-      openai: string;
-      spotify: string;
+      ai_provider?: string;
+      ai_service?: string;
+      music_provider?: string;
+      music_service?: string;
     };
     config_loaded: boolean;
   }> {

@@ -1,7 +1,10 @@
 {
   "environment": "dev",
   "ai_provider": {
-    "default": "ollama"
+    "default": "ollama",
+    "ollama": {
+      "model": "mistral:latest"
+    }
   },
   "flask": {
     "debug": true

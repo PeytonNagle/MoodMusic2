@@ -61,16 +61,31 @@
     }
   },
 
-  "spotify": {
-    "search": {
-      "limit": 5,
-      "market": "US"
+  "music_provider": {
+    "default": "itunes",
+    "itunes": {
+      "country": "US",
+      "search_limit": 5,
+      "timeout": 8,
+      "artwork_size": 600,
+      "matching": {
+        "threshold": 60,
+        "early_exit_score": 80,
+        "primary_artist_bonus": 50,
+        "any_artist_bonus": 20
+      }
     },
-    "matching": {
-      "threshold": 60,
-      "early_exit_score": 80,
-      "primary_artist_bonus": 50,
-      "any_artist_bonus": 20
+    "spotify": {
+      "search": {
+        "limit": 5,
+        "market": "US"
+      },
+      "matching": {
+        "threshold": 60,
+        "early_exit_score": 80,
+        "primary_artist_bonus": 50,
+        "any_artist_bonus": 20
+      }
     }
   },
 

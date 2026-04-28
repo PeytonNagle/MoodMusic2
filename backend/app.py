@@ -12,7 +12,7 @@ import signal
 import sys
 from config import Config
 from services.service_factory import MoodServiceFactory
-from services.spotify_service import SpotifyService
+from services.music_service_factory import MusicServiceFactory
 from workers import SaveWorker
 from blueprints import register_blueprints
 import db
@@ -48,12 +48,19 @@ mood_service = MoodServiceFactory.create_service(
 if not mood_service:
     logger.error(f"Failed to initialize AI provider: {provider}")
 
-# Initialize Spotify service
-spotify_service = SpotifyService(
-    Config.SPOTIPY_CLIENT_ID,
-    Config.SPOTIPY_CLIENT_SECRET,
-    Config._config_data.get('spotify')
-) if Config.SPOTIPY_CLIENT_ID and Config.SPOTIPY_CLIENT_SECRET else None
+# Initialize music enrichment provider via factory
+music_provider = Config.get_music_provider()
+logger.info(f"Initializing music provider: {music_provider}")
+music_service = MusicServiceFactory.create_service(
+    provider=music_provider,
+    spotify_client_id=Config.SPOTIPY_CLIENT_ID,
+    spotify_client_secret=Config.SPOTIPY_CLIENT_SECRET,
+    spotify_config=Config._config_data.get('music_provider', {}).get('spotify'),
+    itunes_config=Config._config_data.get('music_provider', {}).get('itunes'),
+)
+
+if not music_service:
+    logger.error(f"Failed to initialize music provider: {music_provider}")
 
 # Initialize background worker for async DB saves
 save_worker = SaveWorker()
@@ -63,7 +70,7 @@ save_worker.start()
 register_blueprints(
     app,
     mood_service=mood_service,
-    spotify_service=spotify_service,
+    music_service=music_service,
     save_queue=save_worker.queue
 )
 
