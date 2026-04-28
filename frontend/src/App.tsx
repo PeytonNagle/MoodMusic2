@@ -21,7 +21,7 @@ type AnalysisData = { mood?: string | null; matched_criteria?: string[] | null }
 
 const buildTrackKey = (track: Track): string | null => {
   if (!track) return null;
-  if (track.id) return `id:${track.id}`;
+  if (track.track_id) return `id:${track.track_id}`;
   const title = (track.title || "").trim().toLowerCase();
   const artist = (track.artist || "").trim().toLowerCase();
   if (!title && !artist) return null;
@@ -90,16 +90,16 @@ export default function App() {
   const mapHistoryItem = (item: HistoryItemResponse): HistoryEntry => {
     const createdTimestamp = item.created_at ? Date.parse(item.created_at) : Date.now();
     const songs: Track[] = (item.songs || []).map((song) => ({
-      id: song.spotify_track_id || null,
+      track_id: song.track_id || null,
       title: song.title || "Unknown title",
       artist: song.artist || "Unknown artist",
       album: song.album || "Unknown album",
       album_art: song.album_art || null,
       preview_url: song.preview_url || null,
-      spotify_url: song.spotify_url || null,
+      track_url: song.track_url || null,
       release_year: song.release_year || null,
       duration_formatted: song.duration_formatted || null,
-      popularity: typeof song.popularity === "number" ? song.popularity : 0,
+      popularity: typeof song.popularity === "number" ? song.popularity : null,
     }));
 
     const emojis = Array.isArray(item.emojis) ? item.emojis : [];

@@ -22,18 +22,18 @@ logger = logging.getLogger(__name__)
 class SearchController(BaseController):
     """Controller for search and recommendation endpoints."""
 
-    def __init__(self, mood_service, spotify_service, save_queue=None):
+    def __init__(self, mood_service, music_service, save_queue=None):
         """
         Initialize search controller with services.
 
         Args:
-            mood_service: AI mood service instance (BaseMoodService - could be GeminiService or OllamaService)
-            spotify_service: SpotifyService instance
+            mood_service: AI mood service instance (BaseMoodService)
+            music_service: Music enrichment provider (BaseMusicService)
             save_queue: Optional queue for background saves
         """
         super().__init__()
         self.mood_service = mood_service
-        self.spotify_service = spotify_service
+        self.music_service = music_service
         self.save_queue = save_queue
 
         # Popularity configuration
@@ -53,7 +53,7 @@ class SearchController(BaseController):
             "Under the Radar": 15,
         })
 
-    def _require_services(self, needs_spotify: bool = False, **empty_fields):
+    def _require_services(self, needs_music: bool = False, **empty_fields):
         """Check required services are available.
 
         Returns a (jsonify_response, 500) tuple if a service is missing, else None.
@@ -67,10 +67,11 @@ class SearchController(BaseController):
                 'error': f'AI service ({provider}) not configured. Please check your configuration.',
                 **empty_fields
             }), 500
-        if needs_spotify and not self.spotify_service:
+        if needs_music and not self.music_service:
+            music_provider = Config.get_music_provider()
             return jsonify({
                 'success': False,
-                'error': 'Spotify service not configured. Please add SPOTIPY_CLIENT_ID and SPOTIPY_CLIENT_SECRET to .env file.',
+                'error': f'Music provider ({music_provider}) not configured. Check `music_provider` in config or `MUSIC_PROVIDER` env var.',
                 **empty_fields
             }), 500
         return None
@@ -134,10 +135,10 @@ class SearchController(BaseController):
 
     @staticmethod
     def _song_identity(song):
-        """Build a stable key for a song using id when present, else title|artist."""
+        """Build a stable key for a song using track_id when present, else title|artist."""
         if not isinstance(song, dict):
             return None
-        song_id = song.get("id")
+        song_id = song.get("track_id") or song.get("id")
         if song_id:
             return f"id:{str(song_id).strip().lower()}"
         title = str(song.get("title", "") or "").strip().lower()
@@ -170,11 +171,15 @@ class SearchController(BaseController):
             return self.add_unique_songs([], songs, seen_keys)
         filtered = []
         for song in songs:
-            pop = song.get("popularity", 0) if isinstance(song, dict) else 0
-            if min_popularity is not None and pop < min_popularity:
-                continue
-            if max_popularity is not None and pop > max_popularity:
-                continue
+            pop = song.get("popularity") if isinstance(song, dict) else None
+            # Providers without a popularity score (e.g. iTunes) report None;
+            # treat that as "unknown" and bypass the bound check rather than
+            # filtering everything out.
+            if pop is not None:
+                if min_popularity is not None and pop < min_popularity:
+                    continue
+                if max_popularity is not None and pop > max_popularity:
+                    continue
             key = self._song_identity(song)
             if key and key in seen_keys:
                 continue
@@ -219,7 +224,7 @@ class SearchController(BaseController):
                 return []
 
             logger.info(f"Enriching {len(new_songs)} new songs with Spotify data...")
-            enriched_batch = self.spotify_service.enrich_songs(new_songs, min_popularity=min_popularity)
+            enriched_batch = self.music_service.enrich_songs(new_songs, min_popularity=min_popularity)
             deduped_batch = []
             self.add_unique_songs(deduped_batch, enriched_batch, enriched_seen)
             return deduped_batch
@@ -293,7 +298,7 @@ class SearchController(BaseController):
                 f"min_popularity: {min_popularity}, max_popularity: {max_popularity}, emojis: {emojis}"
             )
 
-            err = self._require_services(needs_spotify=True, songs=[])
+            err = self._require_services(needs_music=True, songs=[])
             if err:
                 return err
 
@@ -376,7 +381,7 @@ class SearchController(BaseController):
 
             require_query_or_emojis(query, emojis)
 
-            err = self._require_services(needs_spotify=True, songs=[], analysis={})
+            err = self._require_services(needs_music=True, songs=[], analysis={})
             if err:
                 return err
 

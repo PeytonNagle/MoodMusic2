@@ -73,10 +73,10 @@ class ConfigLoader:
         required_sections = [
             'request_handling',
             'gemini',
-            'spotify',
             'popularity',
             'database',
-            'ai_provider'
+            'ai_provider',
+            'music_provider'
         ]
 
         missing = [sec for sec in required_sections if sec not in config]
@@ -101,6 +101,9 @@ class Config:
     AI_PROVIDER = os.getenv('AI_PROVIDER')  # Override config if set
     OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL')  # Override config if set
 
+    # Music Provider settings
+    MUSIC_PROVIDER = os.getenv('MUSIC_PROVIDER')  # Override config if set
+
     # Load JSON configurations
     _loader = ConfigLoader()
     _config_data = {}
@@ -123,7 +126,7 @@ class Config:
             cls._config_data = {
                 'request_handling': {},
                 'gemini': {},
-                'spotify': {},
+                'music_provider': {'default': 'itunes'},
                 'popularity': {},
                 'database': {},
                 'flask': {}
@@ -155,18 +158,27 @@ class Config:
             return cls.AI_PROVIDER.lower()
         return cls.get('ai_provider.default', 'gemini').lower()
 
+    @classmethod
+    def get_music_provider(cls) -> str:
+        """Get the active music enrichment provider name (itunes or spotify)."""
+        if cls.MUSIC_PROVIDER:
+            return cls.MUSIC_PROVIDER.lower()
+        return cls.get('music_provider.default', 'itunes').lower()
+
     @staticmethod
     def validate_config():
-        """Validate that required API keys are present based on active provider"""
-        provider = Config.get_ai_provider()
+        """Validate that required API keys are present based on active providers"""
+        ai_provider = Config.get_ai_provider()
+        music_provider = Config.get_music_provider()
 
-        required_vars = [
-            ('SPOTIPY_CLIENT_ID', Config.SPOTIPY_CLIENT_ID),
-            ('SPOTIPY_CLIENT_SECRET', Config.SPOTIPY_CLIENT_SECRET)
-        ]
+        required_vars = []
+
+        if music_provider == 'spotify':
+            required_vars.append(('SPOTIPY_CLIENT_ID', Config.SPOTIPY_CLIENT_ID))
+            required_vars.append(('SPOTIPY_CLIENT_SECRET', Config.SPOTIPY_CLIENT_SECRET))
 
         # Only require Gemini key if using Gemini
-        if provider == 'gemini':
+        if ai_provider == 'gemini':
             required_vars.append(('GEMINI_API_KEY', Config.GEMINI_API_KEY))
 
         missing_vars = [name for name, value in required_vars if not value]

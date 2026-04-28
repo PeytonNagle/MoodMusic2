@@ -99,14 +99,14 @@ export function SongCard({ track }: SongCardProps) {
             <span className="text-xs text-gray-400">{track.duration_formatted}</span>
           )}
           
-          {track.spotify_url && (
+          {track.track_url && (
             <a
-              href={track.spotify_url}
+              href={track.track_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1 text-xs text-green-400 transition-colors hover:text-green-300"
+              className="flex items-center gap-1 text-xs text-indigo-300 transition-colors hover:text-indigo-200"
             >
-              <span>Spotify</span>
+              <span>Open track</span>
               <ExternalLink className="h-3 w-3" />
             </a>
           )}
