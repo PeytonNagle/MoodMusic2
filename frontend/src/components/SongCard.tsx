@@ -1,36 +1,43 @@
 import { ExternalLink, Music, Play } from "lucide-react";
 import { Track } from "../services/api";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface SongCardProps {
   track: Track;
 }
 
 export function SongCard({ track }: SongCardProps) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioError, setAudioError] = useState(false);
 
+  useEffect(() => {
+    return () => {
+      audioRef.current?.pause();
+      audioRef.current = null;
+    };
+  }, []);
+
   const handlePlayPreview = () => {
     if (!track.preview_url || audioError) return;
-    
-    const audio = new Audio(track.preview_url);
-    audio.volume = 0.5;
-    
-    audio.addEventListener("error", () => {
-      setAudioError(true);
-      setIsPlaying(false);
-    });
-    
-    audio.addEventListener("ended", () => {
-      setIsPlaying(false);
-    });
-    
-    if (isPlaying) {
-      audio.pause();
-      setIsPlaying(false);
+
+    if (!audioRef.current) {
+      const audio = new Audio(track.preview_url);
+      audio.volume = 0.5;
+      audio.addEventListener("play", () => setIsPlaying(true));
+      audio.addEventListener("pause", () => setIsPlaying(false));
+      audio.addEventListener("ended", () => setIsPlaying(false));
+      audio.addEventListener("error", () => {
+        setAudioError(true);
+        setIsPlaying(false);
+      });
+      audioRef.current = audio;
+    }
+
+    if (audioRef.current.paused) {
+      audioRef.current.play();
     } else {
-      audio.play();
-      setIsPlaying(true);
+      audioRef.current.pause();
     }
   };
 
