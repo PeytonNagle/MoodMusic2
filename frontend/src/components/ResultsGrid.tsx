@@ -33,7 +33,7 @@ export function ResultsGrid({ songs, searchQuery }: ResultsGridProps) {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 px-4 sm:px-0">
         {songs.map((track, index) => (
           <div
-            key={track.id || `${track.title}-${track.artist}-${index}`}
+            key={track.track_id || `${track.title}-${track.artist}-${index}`}
             className="animate-in fade-in slide-in-from-bottom-4"
             style={{ animationDelay: `${index * 50}ms`, animationFillMode: "backwards" }}
           >

@@ -74,13 +74,13 @@ class HistoryController(BaseController):
                                 songs_by_request.setdefault(song["request_id"], []).append(
                                     {
                                         "position": song.get("position"),
-                                        "spotify_track_id": song.get("spotify_track_id"),
+                                        "track_id": song.get("spotify_track_id"),
                                         "title": song.get("title"),
                                         "artist": song.get("artist"),
                                         "album": song.get("album"),
                                         "album_art": song.get("album_art"),
                                         "preview_url": song.get("preview_url"),
-                                        "spotify_url": song.get("spotify_url"),
+                                        "track_url": song.get("spotify_url"),
                                         "release_year": song.get("release_year"),
                                         "duration_ms": song.get("duration_ms"),
                                         "duration_formatted": song.get("duration_formatted"),

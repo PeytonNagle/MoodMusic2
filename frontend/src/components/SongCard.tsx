@@ -1,36 +1,43 @@
 import { ExternalLink, Music, Play } from "lucide-react";
 import { Track } from "../services/api";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface SongCardProps {
   track: Track;
 }
 
 export function SongCard({ track }: SongCardProps) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioError, setAudioError] = useState(false);
 
+  useEffect(() => {
+    return () => {
+      audioRef.current?.pause();
+      audioRef.current = null;
+    };
+  }, []);
+
   const handlePlayPreview = () => {
     if (!track.preview_url || audioError) return;
-    
-    const audio = new Audio(track.preview_url);
-    audio.volume = 0.5;
-    
-    audio.addEventListener("error", () => {
-      setAudioError(true);
-      setIsPlaying(false);
-    });
-    
-    audio.addEventListener("ended", () => {
-      setIsPlaying(false);
-    });
-    
-    if (isPlaying) {
-      audio.pause();
-      setIsPlaying(false);
+
+    if (!audioRef.current) {
+      const audio = new Audio(track.preview_url);
+      audio.volume = 0.5;
+      audio.addEventListener("play", () => setIsPlaying(true));
+      audio.addEventListener("pause", () => setIsPlaying(false));
+      audio.addEventListener("ended", () => setIsPlaying(false));
+      audio.addEventListener("error", () => {
+        setAudioError(true);
+        setIsPlaying(false);
+      });
+      audioRef.current = audio;
+    }
+
+    if (audioRef.current.paused) {
+      audioRef.current.play();
     } else {
-      audio.play();
-      setIsPlaying(true);
+      audioRef.current.pause();
     }
   };
 
@@ -99,14 +106,14 @@ export function SongCard({ track }: SongCardProps) {
             <span className="text-xs text-gray-400">{track.duration_formatted}</span>
           )}
           
-          {track.spotify_url && (
+          {track.track_url && (
             <a
-              href={track.spotify_url}
+              href={track.track_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1 text-xs text-green-400 transition-colors hover:text-green-300"
+              className="flex items-center gap-1 text-xs text-indigo-300 transition-colors hover:text-indigo-200"
             >
-              <span>Spotify</span>
+              <span>Open track</span>
               <ExternalLink className="h-3 w-3" />
             </a>
           )}
