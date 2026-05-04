@@ -1,7 +1,7 @@
 """History controller handling user history endpoints."""
 
 import logging
-from flask import request, jsonify
+from flask import g, request, jsonify
 from config import Config
 from db import db_connection
 from .base_controller import BaseController
@@ -110,9 +110,12 @@ class HistoryController(BaseController):
                 raise
 
     def get_user_history(self, user_id):
-        """Get user history endpoint."""
+        """Get user history endpoint. Requires JWT auth (see require_auth)."""
         if user_id <= 0:
             return jsonify({"success": False, "history": [], "error": "Invalid user id"}), 400
+
+        if getattr(g, "user_id", None) != user_id:
+            return jsonify({"success": False, "history": [], "error": "Forbidden"}), 403
 
         limit_param = request.args.get("limit", Config.get('database.history.default_limit', 20))
         try:

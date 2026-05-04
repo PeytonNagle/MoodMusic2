@@ -5,6 +5,7 @@ from flask import request, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 from psycopg2 import errors
 from db_queries import create_user, get_user_by_email
+from services.auth import issue_token
 from .base_controller import BaseController
 
 logger = logging.getLogger(__name__)
@@ -50,7 +51,8 @@ class UserController(BaseController):
                 'display_name': user.get('display_name'),
                 'created_at': user.get('created_at')
             }
-            return jsonify({'success': True, 'user': public_user}), 201
+            token = issue_token(user['id'])
+            return jsonify({'success': True, 'user': public_user, 'token': token}), 201
 
         except Exception:
             logger.exception("Error registering user")
@@ -79,7 +81,8 @@ class UserController(BaseController):
                 'display_name': user.get('display_name'),
                 'created_at': user.get('created_at')
             }
-            return jsonify({'success': True, 'user': public_user}), 200
+            token = issue_token(user['id'])
+            return jsonify({'success': True, 'user': public_user, 'token': token}), 200
 
         except Exception:
             logger.exception("Error logging in user")

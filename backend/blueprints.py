@@ -7,53 +7,71 @@ from controllers import (
     HistoryController,
     HealthController
 )
+from services.auth import require_auth
 
 
-def create_search_blueprint(mood_service, music_service, save_queue=None):
+def _apply(limiter, rule):
+    """Return a no-op decorator if limiter is None, else limiter.limit(rule)."""
+    if limiter is None:
+        return lambda fn: fn
+    return limiter.limit(rule)
+
+
+def create_search_blueprint(mood_service, music_service, save_queue=None, limiter=None):
     """Create and configure search blueprint."""
     bp = Blueprint('search', __name__, url_prefix='/api')
     controller = SearchController(mood_service, music_service, save_queue)
 
-    bp.route('/search', methods=['POST'])(controller.search_music)
-    bp.route('/analyze', methods=['POST'])(controller.analyze)
-    bp.route('/recommend', methods=['POST'])(controller.recommend)
+    bp.route('/search', methods=['POST'])(_apply(limiter, "10/minute;100/day")(controller.search_music))
+    bp.route('/analyze', methods=['POST'])(_apply(limiter, "20/minute;200/day")(controller.analyze))
+    bp.route('/recommend', methods=['POST'])(_apply(limiter, "10/minute;100/day")(controller.recommend))
 
     return bp
 
 
-def create_user_blueprint():
+def create_user_blueprint(limiter=None):
     """Create and configure user blueprint."""
     bp = Blueprint('users', __name__, url_prefix='/api/users')
     controller = UserController()
 
-    bp.route('/register', methods=['POST'])(controller.register_user)
-    bp.route('/login', methods=['POST'])(controller.login_user)
+    auth_limit = _apply(limiter, "5/minute;30/day")
+    bp.route('/register', methods=['POST'])(auth_limit(controller.register_user))
+    bp.route('/login', methods=['POST'])(auth_limit(controller.login_user))
 
     return bp
 
 
-def create_history_blueprint():
+def create_history_blueprint(limiter=None):
     """Create and configure history blueprint."""
     bp = Blueprint('history', __name__, url_prefix='/api')
     controller = HistoryController()
 
-    bp.route('/history/<int:user_id>', methods=['GET'])(controller.get_user_history)
+    handler = require_auth(controller.get_user_history)
+    handler = _apply(limiter, "30/minute")(handler)
+    bp.route('/history/<int:user_id>', methods=['GET'])(handler)
 
     return bp
 
 
-def create_health_blueprint(mood_service=None, music_service=None):
+def create_health_blueprint(mood_service=None, music_service=None, limiter=None):
     """Create and configure health blueprint."""
     bp = Blueprint('health', __name__)
     controller = HealthController(mood_service, music_service)
 
-    bp.route('/api/health', methods=['GET'])(controller.health_check)
-    bp.route('/', methods=['GET'])(controller.root)
+    # Health checks are exempt from rate limits.
+    health = controller.health_check
+    root = controller.root
+    if limiter is not None:
+        health = limiter.exempt(health)
+        root = limiter.exempt(root)
+
+    bp.route('/api/health', methods=['GET'])(health)
+    bp.route('/', methods=['GET'])(root)
 
     return bp
 
 
-def register_blueprints(app, mood_service, music_service, save_queue=None):
+def register_blueprints(app, mood_service, music_service, save_queue=None, limiter=None):
     """
     Register all blueprints with the Flask app.
 
@@ -62,8 +80,9 @@ def register_blueprints(app, mood_service, music_service, save_queue=None):
         mood_service: AI mood service instance (BaseMoodService)
         music_service: Music enrichment provider (BaseMusicService)
         save_queue: Optional queue for background saves
+        limiter: Optional Flask-Limiter instance for per-route rate limits
     """
-    app.register_blueprint(create_search_blueprint(mood_service, music_service, save_queue))
-    app.register_blueprint(create_user_blueprint())
-    app.register_blueprint(create_history_blueprint())
-    app.register_blueprint(create_health_blueprint(mood_service, music_service))
+    app.register_blueprint(create_search_blueprint(mood_service, music_service, save_queue, limiter))
+    app.register_blueprint(create_user_blueprint(limiter))
+    app.register_blueprint(create_history_blueprint(limiter))
+    app.register_blueprint(create_health_blueprint(mood_service, music_service, limiter))

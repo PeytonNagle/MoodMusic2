@@ -77,7 +77,22 @@ DATABASE_URL=postgresql://user:pass@localhost:5432/moodmusic
 # Environment
 ENVIRONMENT=dev  # dev, staging, or prod (affects connection pool sizing)
 DEBUG=true       # Enable Flask debug mode
+
+# Required for any non-dev deployment (used to sign JWTs)
+SECRET_KEY=replace-with-32+-bytes-of-random  # required when ENVIRONMENT != dev
+
+# Comma-separated allowlist of frontend origins. Required for public deploys.
+CORS_ALLOWED_ORIGINS=https://your-frontend.up.railway.app
 ```
+
+### Public / Demo Deployment Notes
+
+For a publicly-linked deploy (e.g., Railway):
+
+- Set `ENVIRONMENT=prod` and a strong random `SECRET_KEY` (the app refuses to start without it outside dev).
+- Set `CORS_ALLOWED_ORIGINS` to your frontend URL(s); the API rejects every other origin.
+- Per-IP rate limits are applied automatically (Flask-Limiter, in-memory): 10/min on `/api/search` and `/api/recommend`, 20/min on `/api/analyze`, 5/min on `/api/users/register|login`. To run multiple backend instances, swap to a Redis storage backend (`Limiter(..., storage_uri="redis://...")` in `app.py`).
+- `/api/history/<user_id>` requires a `Authorization: Bearer <token>` header and the token's `sub` must match the path `user_id`. Tokens are issued by `/api/users/login` and `/api/users/register`.
 
 ### Installation
 

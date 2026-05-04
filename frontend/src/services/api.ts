@@ -1,5 +1,7 @@
 // API service for communicating with Flask backend
 // https://backend-production-6b98.up.railway.app/
+import { authHeader, clearAuth, setStoredUser, setToken } from "./auth";
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
 export interface Track {
@@ -126,6 +128,7 @@ export interface AuthRequest {
 export interface AuthResponse {
   success: boolean;
   user?: User;
+  token?: string;
   error?: string;
 }
 
@@ -216,8 +219,20 @@ export class ApiService {
    */
   static async getUserHistory(userId: number, limit = 20): Promise<UserHistoryResponse> {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/history/${userId}?limit=${limit}`);
+      const response = await fetch(`${API_BASE_URL}/api/history/${userId}?limit=${limit}`, {
+        headers: { ...authHeader() },
+      });
       const data = await response.json();
+
+      if (response.status === 401) {
+        // Token missing/expired — drop local auth so the UI can prompt re-login.
+        clearAuth();
+        return {
+          success: false,
+          history: [],
+          error: "Your session has expired. Please sign in again.",
+        };
+      }
 
       if (!response.ok) {
         return {
@@ -289,6 +304,10 @@ export class ApiService {
       if (!response.ok) {
         throw new Error(data.error || `HTTP error! status: ${response.status}`);
       }
+      if (data.token && data.user) {
+        setToken(data.token);
+        setStoredUser(data.user);
+      }
       return data;
     } catch (error) {
       console.error("API register error:", error);
@@ -311,6 +330,10 @@ export class ApiService {
       if (!response.ok) {
         throw new Error(data.error || `HTTP error! status: ${response.status}`);
       }
+      if (data.token && data.user) {
+        setToken(data.token);
+        setStoredUser(data.user);
+      }
       return data;
     } catch (error) {
       console.error("API login error:", error);
@@ -319,6 +342,10 @@ export class ApiService {
         error: error instanceof Error ? error.message : "Unknown error occurred",
       };
     }
+  }
+
+  static logout(): void {
+    clearAuth();
   }
 
 
