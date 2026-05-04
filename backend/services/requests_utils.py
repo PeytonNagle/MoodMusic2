@@ -21,7 +21,12 @@ def require_json_body(req) -> Dict[str, Any]:
 
 
 def parse_query(data: Dict[str, Any]) -> str:
-    return str(data.get("query", "") or "").strip()
+    from config import Config
+    max_len = Config.get('request_handling.max_query_length', 500)
+    raw = str(data.get("query", "") or "").strip()
+    if len(raw) > max_len:
+        raise ValidationError(f"query too long (max {max_len} characters)", 400)
+    return raw
 
 
 def parse_emojis(emojis_raw: Optional[List[str]], max_emojis: Optional[int] = None) -> List[str]:

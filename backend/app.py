@@ -6,6 +6,9 @@ This module initializes the Flask app, configures services, and registers bluepr
 
 from flask import Flask
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from werkzeug.middleware.proxy_fix import ProxyFix
 import logging
 import os
 import signal
@@ -23,7 +26,33 @@ logger = logging.getLogger(__name__)
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app)  # Enable CORS for frontend
+
+# Trust X-Forwarded-* from one proxy hop (Railway's gateway) so rate limiting
+# keys on the real client IP, not the gateway.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
+# Lock CORS to an allowlist from env (comma-separated). Falls back to localhost
+# for dev. Set CORS_ALLOWED_ORIGINS=https://your-frontend.up.railway.app on Railway.
+_allowed_origins = [
+    o.strip()
+    for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",")
+    if o.strip()
+] or ["http://localhost:3000"]
+CORS(
+    app,
+    resources={r"/api/*": {"origins": _allowed_origins}},
+    supports_credentials=False,
+)
+logger.info(f"CORS allowed origins: {_allowed_origins}")
+
+# Per-IP rate limiter. In-memory storage is fine for the single-instance demo;
+# scale to Redis (storage_uri="redis://...") if running multiple workers.
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["200/day", "60/hour"],
+    headers_enabled=True,
+)
 
 # Validate configuration
 if not Config.validate_config():
@@ -71,7 +100,8 @@ register_blueprints(
     app,
     mood_service=mood_service,
     music_service=music_service,
-    save_queue=save_worker.queue
+    save_queue=save_worker.queue,
+    limiter=limiter,
 )
 
 # Register teardown handlers for cleanup

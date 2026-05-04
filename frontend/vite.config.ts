@@ -50,19 +50,30 @@ export default defineConfig({
   },
 
   preview: {
-  allowedHosts: [
-    'frontend-production-20ff.up.railway.app',
-    'moodmusic.com', // for later
-    'moodtomusic.up.railway.app',
-    'frontend-integration-testing.up.railway.app'
-  ],
-    
-},
+    host: process.env.HOST || '0.0.0.0',
+    port: Number(process.env.PORT) || 4173,
+    // Comma-separated list of hostnames allowed to serve the preview build.
+    // Set PREVIEW_ALLOWED_HOSTS on Railway, or PREVIEW_ALLOWED_HOSTS=all to
+    // disable the host check entirely (acceptable for a public demo).
+    allowedHosts: (() => {
+      const raw = process.env.PREVIEW_ALLOWED_HOSTS;
+      if (raw === 'all') return true;
+      const fromEnv = (raw || '').split(',').map((s) => s.trim()).filter(Boolean);
+      const defaults = [
+        'frontend-production-20ff.up.railway.app',
+        'moodmusic.com',
+        'moodtomusic.up.railway.app',
+        'frontend-integration-testing.up.railway.app',
+      ];
+      return [...new Set([...defaults, ...fromEnv])];
+    })(),
+  },
   build: {
     target: 'esnext',
     outDir: 'build',
   },
   server: {
-    port: 3000,
+    host: process.env.HOST || 'localhost',
+    port: Number(process.env.PORT) || 3000,
   },
 });

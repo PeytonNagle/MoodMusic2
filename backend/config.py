@@ -95,7 +95,15 @@ class Config:
     GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
     SPOTIPY_CLIENT_ID = os.getenv('SPOTIPY_CLIENT_ID')
     SPOTIPY_CLIENT_SECRET = os.getenv('SPOTIPY_CLIENT_SECRET')
-    SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
+    SECRET_KEY = os.getenv('SECRET_KEY') or (
+        'dev-secret-key-change-in-production'
+        if os.getenv('ENVIRONMENT', 'dev').lower() == 'dev'
+        else None
+    )
+    if not SECRET_KEY:
+        raise RuntimeError(
+            "SECRET_KEY env var is required when ENVIRONMENT is not 'dev'."
+        )
 
     # AI Provider settings
     AI_PROVIDER = os.getenv('AI_PROVIDER')  # Override config if set

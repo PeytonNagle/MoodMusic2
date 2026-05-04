@@ -5,6 +5,7 @@ import { ResultsGrid } from "./components/ResultsGrid";
 import { Modal } from "./components/Modal";
 import { Button } from "./components/ui/button";
 import { ApiService, Track, User, RecommendResponse, HistoryItemResponse } from "./services/api";
+import { getStoredUser, getToken, clearAuth } from "./services/auth";
 
 const POPULARITY_RANGES = {
   Any: null,
@@ -71,7 +72,10 @@ export default function App() {
   const [analysis, setAnalysis] = useState<AnalysisData>(null);
   const [showDebug, setShowDebug] = useState(false);
 
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(() => {
+    // Restore session if a token + user are still in localStorage from a prior visit.
+    return getToken() ? getStoredUser() : null;
+  });
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -129,6 +133,11 @@ export default function App() {
         setHistoryEntries(mapped);
       } else {
         setHistoryMessage(response.error || "Unable to load history.");
+        // If the API cleared auth (401), drop the user from React state too.
+        if (!getToken()) {
+          setUser(null);
+          setHistoryEntries([]);
+        }
       }
     } catch (err) {
       console.error("History load error:", err);
@@ -381,6 +390,7 @@ export default function App() {
                 </div>
                 <button
                   onClick={() => {
+                    clearAuth();
                     setUser(null);
                     setHistoryEntries([]);
                   }}
