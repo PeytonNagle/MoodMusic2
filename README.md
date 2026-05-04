@@ -1,22 +1,22 @@
 # MoodMusic2
 
-Full-stack app that converts mood descriptions (text + emojis) into Spotify song recommendations using AI-powered mood analysis and smart Spotify enrichment.
+Full-stack app that converts mood descriptions (text + emojis) into song recommendations using AI-powered mood analysis with pluggable music providers (iTunes by default, Spotify optional).
 
 ## Features
 
-- AI-powered mood analysis with song recommendations
-- Spotify integration with fuzzy matching (album art, previews, metadata)
-- 6-tier popularity filtering system with tolerance-based ranking
-- User accounts with search history
-- High-performance connection pooling (10-50x database performance improvement)
-- Modern React + TypeScript UI with shadcn/ui components
-- Controller-service architecture with dependency injection
+- AI-powered mood analysis with song recommendations (Gemini or Ollama)
+- Pluggable music providers — iTunes Search API (default, no auth) or Spotify
+- Fuzzy matching with album art, 30s previews, and metadata
+- 6-tier popularity filtering with tolerance-based ranking (Spotify only; iTunes bypasses)
+- Optional user accounts with search history
+- ThreadedConnectionPool for PostgreSQL with env-specific sizing
+- React + TypeScript UI with shadcn/ui
 
 ## Tech Stack
 
-**Backend:** Flask, PostgreSQL, AI (Gemini/Ollama), Spotipy, psycopg2 ThreadedConnectionPool
+**Backend:** Flask, PostgreSQL, AI (Gemini/Ollama), Spotipy / iTunes Search API, psycopg2 ThreadedConnectionPool
 **Frontend:** React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui
-**Architecture:** Controller-service pattern with dependency injection, Flask Blueprints, background worker queues
+**Architecture:** Controller-service pattern with DI, Flask Blueprints, provider abstractions, background worker queues
 
 ## Architecture
 
@@ -34,7 +34,10 @@ backend/
 │   ├── gemini_service.py      # Gemini implementation
 │   ├── ollama_service.py      # Ollama implementation
 │   ├── service_factory.py     # AI provider factory
-│   └── spotify_service.py     # Spotify API with fuzzy matching
+│   ├── base_music_service.py  # Abstract music provider interface
+│   ├── itunes_service.py      # iTunes Search API (default, no auth)
+│   ├── spotify_service.py     # Spotify API with fuzzy matching
+│   └── music_service_factory.py # Music provider factory
 ├── workers/                    # Background tasks
 │   └── save_worker.py         # Async database saves
 ├── configs/                    # JSON config files (dev/staging/prod)
@@ -42,11 +45,11 @@ backend/
 ```
 
 **Key Patterns:**
-- **Controller-service architecture** with dependency injection (Jan 2026 refactor)
-- **Flask Blueprints** for route organization by functional area
-- **Provider abstraction pattern** for AI services (Gemini/Ollama)
+- **Controller-service architecture** with dependency injection
+- **Flask Blueprints** for route organization
+- **Provider abstractions** for both AI (Gemini/Ollama) and music (iTunes/Spotify), selectable via env or JSON config
 - **ThreadedConnectionPool** with environment-specific sizing (dev: 1-5, prod: 5-20)
-- **Async database saves** via background worker queue (non-blocking API responses)
+- **Async database saves** via background worker queue
 - **Two-layer config:** JSON files + environment variable overrides
 
 ## Setup
@@ -61,7 +64,10 @@ AI_PROVIDER=gemini  # or 'ollama' for local inference
 GEMINI_API_KEY=your_gemini_api_key  # required if using Gemini
 OLLAMA_BASE_URL=http://localhost:11434  # optional, override for remote Ollama
 
-# Spotify (required)
+# Music Provider (defaults to 'itunes' — no credentials needed)
+MUSIC_PROVIDER=itunes  # or 'spotify'
+
+# Spotify (only required if MUSIC_PROVIDER=spotify)
 SPOTIPY_CLIENT_ID=your_spotify_client_id
 SPOTIPY_CLIENT_SECRET=your_spotify_client_secret
 
@@ -148,11 +154,11 @@ cd frontend && npm run dev
 
 **Multi-Attempt Strategy:** Makes up to 2 AI requests with dynamic sizing (1.5x → 2x) to hit target count after filtering.
 
-**Popularity Tiers:** Global/Superstar (90-100), Hot/Established (75-89), Buzzing/Moderate (50-74), Growing (25-49), Rising (15-24), Under the Radar (0-14)
+**Popularity Tiers (Spotify):** Global/Superstar (90-100), Hot/Established (75-89), Buzzing/Moderate (50-74), Growing (25-49), Rising (15-24), Under the Radar (0-14). iTunes does not expose a popularity score, so the filter is bypassed when iTunes is active.
 
 **Connection Pooling:** ThreadedConnectionPool with environment-specific sizing (dev: 1-5, prod: 5-20). Context manager pattern with graceful degradation.
 
-**Spotify Matching:** Multi-query search with title similarity scoring, primary artist matching, and smart cleanup (ignores features/remasters).
+**Track Matching:** Multi-query search with title similarity scoring, primary artist matching, and smart cleanup (ignores features/remasters). Both providers normalize to a shared `track_id` / `track_url` / `preview_url` payload shape.
 
 ## Configuration
 
@@ -164,9 +170,9 @@ See [CLAUDE.md](CLAUDE.md) for detailed configuration options.
 
 ## Troubleshooting
 
-- **Missing API Keys:** Set `GEMINI_API_KEY` (if using Gemini), `SPOTIPY_CLIENT_ID`, and `SPOTIPY_CLIENT_SECRET` in `backend/.env`
-- **Ollama Issues:** Ensure Ollama is running (`ollama serve`), model is pulled (`ollama list`), and `AI_PROVIDER=ollama` is set
-- **Database Errors:** Verify `DATABASE_URL` format. App works without database for core features. Adjust pool settings in config files if needed.
-- **Import Errors:** Activate virtual environment: `source ../.venv/bin/activate`
-- **No Previews:** Some Spotify tracks lack preview URLs (API limitation)
+- **Missing API Keys:** Set `GEMINI_API_KEY` (if using Gemini). Spotify credentials are only required when `MUSIC_PROVIDER=spotify`.
+- **Ollama Issues:** Ensure Ollama is running (`ollama serve`), model is pulled (`ollama list`), and `AI_PROVIDER=ollama` is set.
+- **Database Errors:** Verify `DATABASE_URL` format. App works without a database for core features.
+- **Import Errors:** Activate virtual environment: `source ../.venv/bin/activate`.
+- **No Previews:** Some Spotify tracks lack preview URLs (API limitation). iTunes returns previews for nearly all tracks.
 
