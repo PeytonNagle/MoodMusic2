@@ -67,7 +67,7 @@ export default function App() {
   const [isRecommending, setIsRecommending] = useState(false);
   const [results, setResults] = useState<Track[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [rawResponse, setRawResponse] = useState<any | null>(null);
+  const [rawResponse, setRawResponse] = useState<Record<string, unknown> | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisData>(null);
   const [showDebug, setShowDebug] = useState(false);
 
