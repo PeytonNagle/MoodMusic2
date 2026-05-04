@@ -2,6 +2,8 @@
 
 Full-stack app that converts mood descriptions (text + emojis) into song recommendations using AI-powered mood analysis with pluggable music providers (iTunes by default, Spotify optional).
 
+Try it here!: https://moodtomusic.up.railway.app/
+
 ## Features
 
 - AI-powered mood analysis with song recommendations (Gemini or Ollama)
